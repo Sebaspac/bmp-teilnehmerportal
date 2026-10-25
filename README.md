@@ -1,0 +1,134 @@
+# BMP Teilnehmerportal
+
+Teilnehmerportal des Bayerischen Mittelstandspreises: Anmeldung, Fremdnominierung, Rechnung und Fragebogen, Juryverfahren in zwei Stufen, Einladung zur Gala und die Verwaltung der Geschäftsstelle.
+
+**Stand:** klickbarer Prototyp mit allen Ansichten (Bewerber, Verwaltung, Sachbearbeitung, Jury). Die Daten liegen im Browser (localStorage), es gibt noch kein Backend. Der Code ist so aufgebaut, dass ein Backend hinter ein festes Interface kommt und dieselben Geschäftsregeln serverseitig nutzt – an den Oberflächen-Komponenten muss dafür nichts geändert werden.
+
+| Dokument | Inhalt |
+|---|---|
+| [docs/teilnehmerportal-backend.md](docs/teilnehmerportal-backend.md) | **Übergabe an die Backend-Entwicklung:** Datenmodell, API-Vertrag, Befehle, Rollen, Zustandsmodell, Sichtbarkeit, offene Entscheidungen |
+| [docs/testanleitung.md](docs/testanleitung.md) | Testzugänge und Use Cases zum Durchklicken |
+| [PRODUCT.md](PRODUCT.md) | Nutzergruppen, Zweck und Gestaltungsprinzipien |
+
+## Starten
+
+Voraussetzungen: Node.js 22 oder neuer, pnpm 10.
+
+```bash
+pnpm install
+```
+
+```bash
+pnpm dev
+```
+
+Dann http://localhost:3000/portal öffnen. Testzugänge stehen auf der Login-Seite („Testzugänge“) und in der Testanleitung. Oben im Portal öffnet „Demo-Steuerung“ den Perspektivwechsel und die NEWEDGE-Szenarien.
+
+| Befehl | Wirkung |
+|---|---|
+| `pnpm dev` | Entwicklungsserver |
+| `pnpm build` / `pnpm start` | Produktions-Build bauen und starten |
+| `pnpm typecheck` | TypeScript prüfen |
+| `pnpm test` | Unit-Tests der Geschäftsregeln (ohne Browser, ca. 1 s) |
+| `pnpm test:e2e` | Browser-Tests (Playwright, 22 Tests, ca. 1 min) |
+
+## Aufbau
+
+```
+src/portal/
+  domain/     Reines TypeScript: Typen, Regeln, Rechte, Sichtbarkeit. Läuft im Browser und auf dem Server.
+  data/       Anbindung an die Datenhaltung – austauschbar hinter einem Interface.
+  ui/         React-Komponenten. Lesen über usePortalSnapshot(), schreiben über runCommand().
+  content/    Alle Texte der Oberfläche.
+src/app/portal/  Next.js-Route /portal (eine Seite, Routing innerhalb des Portals)
+src/shared/      Kleine Hilfen aus dem Website-Projekt (E-Mail-Prüfung, Bild)
+tests/int/       Unit-Tests der Domäne (Vitest)
+tests/e2e/       Browser-Tests (Playwright), Hilfen in tests/helpers/portal.ts
+```
+
+Abhängigkeiten zeigen nur nach unten: `ui → data → domain`, `ui → domain`, alle → `content`. Die Domäne kennt weder React noch Browser-APIs.
+
+| Datei | Aufgabe |
+|---|---|
+| `domain/types.ts` | Datenmodell: alle Entitäten, Statuswerte und Anfangswerte |
+| `domain/commands.ts` | **Alle Schreibaktionen** als Befehle: wer darf (`authorize`), wann (Voraussetzungen), was ändert sich |
+| `domain/permissions.ts` | Rollen, Rechte, `Actor` (wer handelt) |
+| `domain/visibility.ts` | Was jede Rolle sehen darf (`visibleTo`) |
+| `domain/process.ts` | Ableitungen: Phase, Status und nächster Schritt für Bewerber und Verwaltung, Bezeichnungen |
+| `domain/selectors.ts` | Lesehilfen (Listen, Firmenname, Sitzung, Rundenstatus) |
+| `domain/registration.ts` | Prüfregeln der Anmeldung |
+| `domain/questionnaire.ts` | Fragebogen: Abschnitte, Felder, Formate, Prüfregeln, Preise |
+| `domain/exports.ts` | CSV-Exporte und Mailinglisten |
+| `domain/seed.ts` | Nur Prototyp: Demo-Daten, Testzugänge, Szenarien |
+| `data/backend.ts` | **Vertrag** `PortalBackend` (Snapshot lesen, Befehle ausführen, Anmeldung) und `DemoControls` |
+| `data/portalClient.ts` | Wählt das Backend, Hooks für React, Fehlerhinweise |
+| `data/mockBackend.ts` | Nur Prototyp: Backend im Browser (localStorage), nutzt `domain/commands.ts` |
+| `data/httpBackend.ts` | Vorlage für das echte Backend (HTTP gegen `/api/portal/…`) |
+| `ui/PortalApp.tsx` | Einstieg: Routing, Perspektiven, Filterung nach Rolle, Demo-Steuerung |
+| `ui/*Sheet.tsx` | Seitenmappen (Anmeldung, Vorgang, Fragebogen, Stammdaten, Verwaltung) |
+| `ui/AdminView.tsx`, `ui/AdminAreas.tsx`, `ui/JuryAdmin.tsx` | Verwaltung: Übersicht, Listen, Vorgang, Runde, Exporte, Rechte, Jury |
+| `ui/JuryView.tsx` | Juryansicht |
+
+### Datenfluss
+
+1. `usePortalSnapshot()` liefert den Stand. `PortalApp` filtert ihn mit `visibleTo` für die angemeldete Person und reicht ihn als `state` an die Ansichten weiter.
+2. Eine Komponente ruft `runCommand({ type: 'payment.confirm', submissionId })`.
+3. Das Backend prüft mit `authorize` und `applyCommand` (beides `domain/commands.ts`), speichert und meldet den neuen Stand.
+4. Lehnt es ab, zeigt `CommandErrorNotice` die Begründung. Wer den Fehler selbst behandeln will (z. B. „E-Mail vergeben“ am Feld), nimmt `sendCommand`.
+
+## Erweitern
+
+**Neue Aktion**
+1. Befehl in `PortalCommand` ergänzen (`domain/commands.ts`).
+2. In `COMMAND_SPEC` eintragen, wer ihn auslösen darf und mit welchem Recht.
+3. In `apply` Voraussetzungen und Wirkung beschreiben (für Vorgänge mit `changeProcess`, das schreibt auch den Verlauf).
+4. Test in `tests/int/portal-domain.int.spec.ts` ergänzen.
+5. In der Oberfläche `runCommand({ type: … })` aufrufen. Buttons mit derselben Bedingung sperren, mit der der Befehl ablehnt.
+
+**Neues Feld**
+1. Typ und Anfangswert in `domain/types.ts`.
+2. Ist es vertraulich? Dann in `domain/visibility.ts` für Rollen ohne Einsicht entfernen.
+3. Muss es geprüft werden? Dann in `domain/registration.ts` bzw. im Befehl.
+4. Oberfläche und, falls nötig, Export (`domain/exports.ts`).
+
+**Neue Ansicht oder neuer Verwaltungsbereich**
+1. Komponente in `ui/`, Texte in `content/portalContent.ts`.
+2. Route in `parseRoute` (`ui/PortalApp.tsx`), Verwaltungsbereiche über `?bereich=` (`portalContent.admin.tabs`).
+3. Sichtbarkeit über `can(viewer, recht)` aus `domain/permissions.ts`.
+
+**Neues Recht oder neue Rolle**: `domain/permissions.ts` (`ROLE_PERMISSIONS`). Die Rechte-Matrix unter „Exporte & Rechte“ zeigt die Änderung automatisch.
+
+### Regeln
+
+- Komponenten ändern nie Daten direkt und importieren weder `mockBackend` noch `fetch` – nur `data/portalClient.ts`.
+- Geschäftsregeln gehören in `domain/`, nicht in Komponenten. Komponenten dürfen Regeln zur Anzeige abfragen (`canRelease`, `juryProgress`, `adminNext` …).
+- Alles, was nur dem Prototyp dient, ist als „Nur Prototyp“ kommentiert und hängt an `portalDemo` (ohne Mock `null`).
+- Texte stehen in `content/portalContent.ts`. Ausnahme: Bezeichnungen von Statuswerten in `domain/process.ts`, weil Exporte und Verlauf sie auch serverseitig brauchen.
+
+## Backend anschließen
+
+1. Endpunkte nach [docs/teilnehmerportal-backend.md](docs/teilnehmerportal-backend.md) umsetzen; im Route Handler `executeCommand` und `visibleTo` aus `src/portal/domain/` verwenden.
+2. `NEXT_PUBLIC_PORTAL_BACKEND=http` setzen. Die Oberfläche nutzt dann `data/httpBackend.ts`, die Demo-Steuerung verschwindet.
+3. Prototyp-Teile entfernen (Liste in der Übergabe, Abschnitt 11).
+
+Das Portal kann eigenständig bleiben oder in das Website-Projekt (`bmp-website-2026-neu`, Payload CMS) übernommen werden – beide Wege beschreibt die Übergabe in Abschnitt 4.
+
+## Tests
+
+**Geschäftsregeln:** `pnpm test` – Ablauf eines Vorgangs, Voraussetzungen, Rechte, Sichtbarkeit (`tests/int/portal-domain.int.spec.ts`).
+
+**Oberfläche:** einmalig den Browser installieren, dann `pnpm test:e2e`. Ein laufender Dev-Server wird mitbenutzt, sonst startet die Konfiguration `pnpm dev` (Port über `PORT`, Standard 3000).
+
+```bash
+pnpm exec playwright install chromium
+```
+
+| Datei (`tests/e2e/`) | Prüft |
+|---|---|
+| `anmeldung.e2e.spec.ts` | Testzugänge führen in ihre Ansicht, falsches Passwort, Abmelden |
+| `ablauf.e2e.spec.ts` | NEWEDGE durch alle vier Phasen inkl. Fragebogen und Jury, Bewerbersicht nach jedem Schritt; Registrierung mit Fremdnominierung; Filter; mobil |
+| `jury.e2e.spec.ts` | Jury-Dashboard, Mitglied anlegen und zuweisen, beide Jury-Arten bewerten (Desktop und mobil) |
+| `verwaltung.e2e.spec.ts` | Trichter, Schnellaktionen, Live-Ansicht eines Fragebogens über zwei Tabs |
+| `bereiche.e2e.spec.ts` | Runde, CSV-Exporte (Dateiinhalt), Rechte und Sachbearbeitung, Gewinnerunterlagen, Hinweis bei abgelehnter Aktion |
+
+Jeder Test startet mit frischen Demo-Daten (eigener Browserkontext) und scheitert bei Fehlern in der Browserkonsole. Die Tests nutzen die Demo-Steuerung; für das echte Backend brauchen sie Testdaten in der Datenbank und Logins statt Perspektivwechsel.
