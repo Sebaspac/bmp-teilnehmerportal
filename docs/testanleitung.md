@@ -6,7 +6,7 @@ Alle Daten liegen nur in diesem Browser. Es gibt keine echte Anmeldung, keine E-
 
 ## 0. Vorbereitung
 
-1. Portal öffnen → oben **„Demo-Steuerung“** → ganz unten **„Alle Demo-Daten zurücksetzen“**. Damit startet jeder Test sauber.
+1. Portal öffnen → in der Seitenleiste unten **„Demo-Steuerung“** (mobil hinter **„Menü“**) → ganz unten **„Alle Demo-Daten zurücksetzen“**. Damit startet jeder Test sauber.
 2. **Nur ein Tab:** Die Anmeldung gilt für alle Tabs des Browsers. Ein Login als Verwaltung in Tab 2 meldet den Unternehmer in Tab 1 ab. Zwischen den Rollen wechseln Sie so:
    - **Abmelden / Anmelden** mit dem nächsten Testzugang, oder
    - **Demo-Steuerung → Perspektive** (Bewerber / Verwaltung / Jury, ohne Passwort), oder
@@ -27,9 +27,11 @@ Passwort für alle: **demo2026**. Auf der Login-Seite füllt **„Eintragen“**
 | Jury 2 (Punkte 1–10) | `jury2@demo.bmp` | Juryansicht als Jurymitglied D, nur zugewiesene Fragebögen |
 | Neues Konto | beliebige Adresse über **„Konto erstellen“** | leeres Konto, Start bei den Stammdaten |
 
-Weitere Jurymitglieder (B, C in Jury 1; E in Jury 2) und selbst angelegte Mitglieder melden sich mit den Zugangsdaten an, die in der Verwaltung unter **Jury → „Verwalten“** angezeigt werden. Selbst angelegte interne Benutzer finden Sie unter **Exporte & Rechte → Interne Zugänge → „Anzeigen“**.
+Weitere Jurymitglieder (B, C in Jury 1; E in Jury 2) und selbst angelegte Mitglieder melden sich mit den Zugangsdaten an, die in der Verwaltung unter **Jury → „Verwalten“** angezeigt werden. Selbst angelegte interne Benutzer finden Sie unter **Rechte & Benutzer → Interne Zugänge → „Anzeigen“**.
 
-**Menü der Verwaltung:** Übersicht · Runde · Anmeldungen · Zahlungen · Fragebögen · Jury · Ergebnisse · Gewinnerunterlagen · Exporte & Rechte.
+**Aufbau:** Links die Seitenleiste mit den Bereichen der Rolle (mobil hinter **„Menü“**), unten Konto, Abmelden und Demo-Steuerung. Details wie ein Vorgang, der Fragebogen oder ein Jurymitglied öffnen als eigene Seite; oben führt **„Zurück zur …“** zurück.
+
+**Menü der Verwaltung:** Vorgänge: Übersicht · Anmeldungen · Zahlungen · Fragebögen · Jury · Ergebnisse · Gewinnerunterlagen; Verwaltung: Runde · Exporte · Rechte & Benutzer. Die Zahlen neben den Bereichen zeigen offene Arbeit.
 
 ## 2. Use Cases
 
@@ -204,7 +206,7 @@ Leitplanken (in der Verwaltung prüfen):
 
 ### UC 11: Exporte und Mailinglisten
 
-1. Verwaltung → **„Exporte & Rechte“** → Abschnitt **Exporte**.
+1. Verwaltung → **„Exporte“**.
    - ✓ Neun Listen, jeweils mit Anzahl der Einträge: Alle Teilnehmenden · Phase 01 · Zahlungserinnerung · Erinnerung Fragebogen (mit Frist) · Eingeladene (Gala) · Ohne Einladung · Fehlende Gewinnerunterlagen · Vorschlagende Personen · Jury-Auswertung.
 2. **„CSV herunterladen“** → ✓ Die Datei `bmp-2027_mailing_…_<Datum>.csv` wird gespeichert.
    - In Excel öffnen → ✓ Spalten Anrede, Vorname, Nachname, E-Mail, Unternehmen, Eingangsnummer, Art, Phase, Status; Umlaute korrekt.
@@ -235,7 +237,7 @@ Die Liste der Unterlagen ist ein Platzhalter. Dateien werden nicht hochgeladen, 
 
 ### UC 13: Rechte und Benutzer
 
-1. Verwaltung → **„Exporte & Rechte“** → Abschnitt **Rechte & Benutzer**.
+1. Verwaltung → **„Rechte & Benutzer“**.
    - ✓ Matrix „Rollen und Rechte“ für Verwaltung, Sachbearbeitung, Jury 1 und Jury 2.
    - ✓ „Interne Zugänge“: alle Konten der Geschäftsstelle und der Jury.
 2. **Benutzer anlegen**: Name, E-Mail, Rolle (Verwaltung oder Sachbearbeitung) → „Anlegen“.
@@ -244,7 +246,7 @@ Die Liste der Unterlagen ist ein Platzhalter. Dateien werden nicht hochgeladen, 
 3. Abmelden → mit dem neuen Zugang (Rolle Sachbearbeitung) oder mit `sachbearbeitung@demo.bmp` anmelden.
    - ✓ Menü ohne **Runde**, **Jury** und **Ergebnisse**.
    - ✓ Im Vorgang sind Juryorganisation und Ergebnis **nur lesbar** („Nur lesen – für diesen Schritt fehlt Ihrer Rolle das Recht.“).
-   - ✓ Unter „Exporte & Rechte“ nur die Exporte, keine Benutzerverwaltung.
+   - ✓ **Exporte** ja, **Rechte & Benutzer** fehlt im Menü.
 4. Als Verwaltung beim neuen Zugang den Haken **„aktiv“** entfernen → abmelden → mit diesem Zugang anmelden.
    - ✓ Anmeldung abgelehnt: „Dieser Zugang ist deaktiviert …“.
 5. Den eigenen Zugang können Sie weder deaktivieren noch in der Rolle ändern.
@@ -253,12 +255,13 @@ Jury-Zugänge verwalten Sie unter **Jury** (UC 9), nicht hier.
 
 ### UC 14: Bedienung, Mobil, Tastatur
 
-- **Tastatur:** Tab durch die Kopfleiste → ✓ goldener Fokusrahmen.
-- **Mappen:** Mappe öffnen und mit **Escape** oder **X** schließen → ✓ Der Fokus kehrt zum Button zurück.
+- **Tastatur:** Tab durch die Seitenleiste → ✓ goldener Fokusrahmen; „Zum Inhalt springen“ als erster Halt.
+- **Detailseiten:** Vorgang öffnen, dann **„Zurück zur …“** oder **Escape** (außerhalb von Textfeldern) → ✓ Die Liste erscheint wieder, der Fokus steht auf dem Button, mit dem Sie geöffnet haben.
 - **Mobil (390 px):**
+  - ✓ **„Menü“** öffnet die Seitenleiste als Schublade; Escape oder **X** schließt sie.
   - ✓ Im Vorgang steht der nächste Schritt oben.
-  - ✓ Fußleisten sind einzeilig.
-  - ✓ Die Verwaltung zeigt Karten.
+  - ✓ Die Aktionsleiste unten bleibt sichtbar und ist einzeilig.
+  - ✓ Tabellen der Verwaltung werden zu Karten.
   - ✓ Kein seitliches Scrollen.
 - **Demo-Wechsel:** Als neues Konto angemeldet → Demo-Steuerung „Bewerber“ → ✓ Im Panel erscheint **„Zurück zu Ihrem Konto: …“**.
 

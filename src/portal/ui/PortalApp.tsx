@@ -3,22 +3,42 @@
 /*
  * THESIS: Ein Vorgang, vier Phasen, drei Perspektiven. Statt getrennter Ansichten mit eigenen Wahrheiten lesen Bewerber,
  *   Verwaltung und Jury denselben simulierten Zustand; Phase (A), Detailstatus (B) und nächste Handlung (C) bleiben getrennt.
- * OWN-WORLD: BMP-Website – Anthrazit-Kopfleiste mit Gold-Haarlinien, Navy-Flächen mit Rautentextur, weiße Blätter auf
- *   Steingrau, Gold nur für Fortschritt und die eine Hauptaktion, eckige Kanten, IBM Plex für Titel/Labels, Inter für Text.
+ * OWN-WORLD: BMP-Marke als Arbeitsoberfläche – Navy-Seitenleiste mit weißem Wappen, Gold markiert den aktiven Bereich und
+ *   die eine Hauptaktion; Inhalt hell und flach (weiße Flächen auf warmem Hellgrau, Trennlinien statt Boxen), eckige
+ *   Kanten, IBM Plex für Titel/Labels, Inter für Text.
  * STORY: Anmeldung → Prüfung → Fragebogen-Freigabe → Fragebogen → Auditsitzung der Jury → Einladung zur Gala (oder
  *   neutraler Abschluss); die Verwaltung schaltet die Schritte, der Bewerber sieht sofort, wo er steht und ob er handeln muss.
- * FIRST VIEWPORT: Navy-Band mit Begrüßung und goldener Aktion „Neue Anmeldung“; Vorgangsliste mit Phase, Status und
- *   nächstem Schritt; NEWEDGE-Detail als Mappe mit Vier-Phasen-Zeitleiste oben.
- * FORM: Seitenmappe über Dashboard (bestehende Fläche erweitert), Seed e90a217b.
+ * FIRST VIEWPORT: Seitenleiste mit den Bereichen der Rolle; rechts Seitentitel mit der Hauptaktion und darunter die Liste
+ *   (Vorgänge mit Phase, Status und nächstem Schritt).
+ * FORM: App-Rahmen mit Seitenleiste; Details (Vorgang, Fragebogen, Anmeldung, Jurymitglied) als eigene Seiten mit
+ *   „Zurück“ statt überlagernder Mappen – nichts liegt übereinander.
  * FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { ExternalLink, LogOut, SlidersHorizontal } from 'lucide-react'
+import {
+  Award,
+  CalendarRange,
+  CircleHelp,
+  ClipboardCheck,
+  ExternalLink,
+  FileSpreadsheet,
+  FileText,
+  FolderOpen,
+  FolderUp,
+  KeyRound,
+  LayoutDashboard,
+  Receipt,
+  Scale,
+  SlidersHorizontal,
+  UserRound,
+  type LucideIcon,
+} from 'lucide-react'
 
 import Image from '@/shared/UnoptimizedImage'
-import { AdminOverview, AdminQuestionnaireSheet, AdminVorgangSheet, type AdminTab } from '@/portal/ui/AdminView'
+import { AdminOverview, AdminQuestionnaireSheet, AdminVorgangSheet, areaCounts, tabAllowed, type AdminTab } from '@/portal/ui/AdminView'
+import { AppShell, type NavSection } from '@/portal/ui/AppShell'
 import { AuthScreen } from '@/portal/ui/AuthScreen'
 import { DemoPanel, type Perspective } from '@/portal/ui/DemoPanel'
 import { cx } from '@/portal/ui/fields'
@@ -29,7 +49,7 @@ import { PortalOverview } from '@/portal/ui/PortalOverview'
 import { portalContent } from '@/portal/content/portalContent'
 import { logout, newClientId, portalDemo, usePortalSnapshot } from '@/portal/data/portalClient'
 import { actorOf, can, viewerRole } from '@/portal/domain/permissions'
-import { ROUND_LABEL } from '@/portal/domain/process'
+import { JURY_TYPE_LABEL, ROUND_LABEL } from '@/portal/domain/process'
 import { newedgeSubmission, type ScenarioId } from '@/portal/domain/seed'
 import { accountOf, isProfileComplete, jurorById, registrationOpen, sessionAccount, submissionsFor } from '@/portal/domain/selectors'
 import type { Account, SubmissionType } from '@/portal/domain/types'
@@ -286,24 +306,12 @@ export default function PortalApp() {
     router.replace('/portal/anmelden')
   }
 
-  const bar = (
-    <PortalBar
-      account={
-        perspective === 'bewerber'
-          ? account
-          : (perspective === 'admin' ? account?.role === 'verwaltung' || account?.role === 'sachbearbeitung' : account?.role === 'jury')
-            ? account
-            : null
-      }
-      perspective={perspective}
-      demoOpen={demoOpen}
-      onToggleDemo={portalDemo ? () => setDemoOpen((open) => !open) : undefined}
-      onLogout={async () => {
-        await logout()
-        router.replace('/portal/anmelden')
-      }}
-    />
-  )
+
+  const handleLogout = async () => {
+    await logout()
+    router.replace('/portal/anmelden')
+  }
+  const demoToggle = portalDemo ? { open: demoOpen, onToggle: () => setDemoOpen((open) => !open) } : null
   const demoPanel =
     demoOpen && snapshot && portalDemo ? (
       <DemoPanel
@@ -330,10 +338,16 @@ export default function PortalApp() {
     ) : null
 
   if (!state || (!account && needsAccount) || (account && isAuthView)) {
+    // Ladezustand im Rahmen der Zielansicht, damit beim Erscheinen nichts springt.
     return (
       <div className={styles.root}>
-        <PortalBar perspective="bewerber" />
-        <div className={styles.skeletonBand} aria-hidden="true" />
+        {isAuthView || !account ? (
+          <PublicBar />
+        ) : (
+          <div className={styles.app}>
+            <div className={styles.sidebar} aria-hidden="true" />
+          </div>
+        )}
         <p className={styles.loading} role="status">
           <span className={styles.srOnly}>Wird geladen …</span>
         </p>
@@ -341,14 +355,46 @@ export default function PortalApp() {
     )
   }
 
+  const navCopy = portalContent.nav
+  // In der Seitenleiste steht nur, wer angemeldet ist und zur Ansicht passt (sonst Demo-Perspektive ohne Anmeldung).
+  const shellAccount =
+    perspective === 'bewerber'
+      ? account
+      : (perspective === 'admin' ? account?.role === 'verwaltung' || account?.role === 'sachbearbeitung' : account?.role === 'jury')
+        ? account
+        : null
+  const shellUser = shellAccount
+    ? {
+        name: accountName(shellAccount),
+        role:
+          shellAccount.role === 'jury'
+            ? JURY_TYPE_LABEL[jurorById(state, shellAccount.jurorId)?.type ?? 'jury1']
+            : navCopy.roles[shellAccount.role ?? 'bewerber'],
+      }
+    : null
+
+  const shell = (navLabel: string, sections: NavSection[], active: string, content: React.ReactNode) => (
+    <div className={styles.root}>
+      <AppShell navLabel={navLabel} sections={sections} active={active} onNavigate={navigate} user={shellUser} onLogout={handleLogout} demo={demoToggle}>
+        {content}
+      </AppShell>
+      {demoPanel}
+      <CommandErrorNotice />
+    </div>
+  )
+
   /* ── Verwaltung & Jury (Demo-Perspektiven ohne Anmeldung) ── */
   // Rolle für Rechte in der Verwaltung: Sachbearbeitung eingeschränkt, sonst (auch ohne Anmeldung) volle Verwaltungsrechte.
   const viewer = viewerRole(account)
-  if (perspective === 'admin' || perspective === 'jury') {
-    let sheet: React.ReactNode = null
+  if (perspective === 'jury') {
+    return shell(navCopy.juryLabel, [{ items: [{ key: 'jury', label: navCopy.jury, href: '/portal/jury', icon: ClipboardCheck }] }], 'jury', <JuryView state={state} account={account} />)
+  }
+
+  if (perspective === 'admin') {
+    let page: React.ReactNode = null
     if (route.view === 'adminVorgang') {
       const submission = state.submissions.find((item) => item.id === route.id && item.status === 'eingereicht')
-      sheet = submission ? (
+      page = submission ? (
         <AdminVorgangSheet
           key={submission.id}
           state={state}
@@ -372,7 +418,7 @@ export default function PortalApp() {
     }
     if (route.view === 'adminQuestionnaire') {
       const submission = state.submissions.find((item) => item.id === route.id && item.status === 'eingereicht')
-      sheet = submission ? (
+      page = submission ? (
         <AdminQuestionnaireSheet
           key={`fb-${submission.id}`}
           submission={submission}
@@ -383,49 +429,49 @@ export default function PortalApp() {
         <Redirect to={adminBase} />
       )
     }
-    if (route.view === 'adminJuror' && !can(viewer, 'jury')) sheet = <Redirect to="/portal/admin" />
+    if (route.view === 'adminJuror' && !can(viewer, 'jury')) page = <Redirect to="/portal/admin" />
     else if (route.view === 'adminJuror') {
       const juryBase = '/portal/admin?bereich=jury'
       const juror = jurorById(state, route.id)
       if (route.id === 'neu')
-        sheet = <NewJurorSheet key="juror-new" onClose={() => router.replace(juryBase)} onCreated={(id) => router.replace(`/portal/admin/jury/${id}?neu=1`)} />
+        page = <NewJurorSheet key="juror-new" onClose={() => router.replace(juryBase)} onCreated={(id) => router.replace(`/portal/admin/jury/${id}?neu=1`)} />
       else
-        sheet = juror ? (
+        page = juror ? (
           <JurorSheet key={`juror-${juror.id}`} state={state} juror={juror} justCreated={searchParams.get('neu') === '1'} onClose={() => router.replace(juryBase)} />
         ) : (
           <Redirect to={juryBase} />
         )
     }
-    return (
-      <div className={styles.root}>
-        <a href="#inhalt" className={cx(styles.srOnly, styles.skipLink)}>
-          Zum Inhalt springen
-        </a>
-        {bar}
-        <div inert={sheet ? true : undefined} className={styles.rootInner}>
-          {perspective === 'admin' ? (
-            <AdminOverview
-              state={state}
-              tab={route.view === 'adminJuror' ? 'jury' : adminTab}
-              navigate={navigate}
-              viewer={viewer}
-              sessionAccountId={account?.id ?? null}
-            />
-          ) : (
-            <JuryView state={state} account={account} />
-          )}
-        </div>
-        {sheet}
-        {demoPanel}
-        <CommandErrorNotice />
-      </div>
+
+    const activeTab: AdminTab = route.view === 'adminJuror' ? 'jury' : adminTab
+    const counts = areaCounts(state)
+    const sections = (['arbeit', 'einstellungen'] as const)
+      .map((section) => ({
+        label: portalContent.admin.navSections[section],
+        items: portalContent.admin.tabs
+          .filter((tab) => tab.section === section && tabAllowed(viewer, tab.key))
+          .map((tab) => ({
+            key: tab.key,
+            label: tab.label,
+            href: tab.key === 'uebersicht' ? '/portal/admin' : `/portal/admin?bereich=${tab.key}`,
+            icon: AREA_ICONS[tab.key],
+            count: counts[tab.key],
+          })),
+      }))
+      .filter((section) => section.items.length > 0)
+
+    return shell(
+      portalContent.admin.navLabel,
+      sections,
+      activeTab,
+      page ?? <AdminOverview state={state} tab={activeTab} navigate={navigate} viewer={viewer} sessionAccountId={account?.id ?? null} />,
     )
   }
 
   if (!account) {
     return (
       <div className={styles.root}>
-        {bar}
+        <PublicBar demo={demoToggle} />
         <AuthScreen mode={route.view === 'register' ? 'register' : 'login'} />
         {demoPanel}
       </div>
@@ -435,12 +481,12 @@ export default function PortalApp() {
   /* ── Bewerber ── */
   const submissions = submissionsFor(state, account.id)
   const freshId = route.view === 'overview' ? searchParams.get('neu') : null
-  let sheet: React.ReactNode = null
+  let page: React.ReactNode = null
 
   if (route.view === 'profile') {
     const continueTo = safeContinue(searchParams.get('weiter'))
     const intent: ProfileIntent = searchParams.get('willkommen') ? 'welcome' : continueTo ? 'beforeSubmission' : 'edit'
-    sheet = (
+    page = (
       <ProfileSheet
         key="profile"
         account={account}
@@ -474,9 +520,9 @@ export default function PortalApp() {
   if (route.view === 'new') {
     const draftKey = searchParams.get('entwurf')
     const known = draftKey ? submissions.find((item) => item.id === draftKey) : undefined
-    if (known && known.status !== 'entwurf' && pinnedEditorId !== known.id) sheet = <Redirect to={`/portal/vorgang/${known.id}`} />
+    if (known && known.status !== 'entwurf' && pinnedEditorId !== known.id) page = <Redirect to={`/portal/vorgang/${known.id}`} />
     else
-      sheet = (
+      page = (
         <SubmissionSheet
           key="editor"
           {...editorProps}
@@ -490,16 +536,17 @@ export default function PortalApp() {
 
   if (route.view === 'draft') {
     const submission = submissions.find((item) => item.id === route.id)
-    if (!submission) sheet = <Redirect to="/portal" />
-    else if (submission.status === 'entwurf' || pinnedEditorId === submission.id) sheet = <SubmissionSheet key="editor" {...editorProps} draft={submission} resumeAtSaved registrationClosed={!registrationOpen(state)} />
-    else sheet = <Redirect to={`/portal/vorgang/${submission.id}`} />
+    if (!submission) page = <Redirect to="/portal" />
+    else if (submission.status === 'entwurf' || pinnedEditorId === submission.id)
+      page = <SubmissionSheet key="editor" {...editorProps} draft={submission} resumeAtSaved registrationClosed={!registrationOpen(state)} />
+    else page = <Redirect to={`/portal/vorgang/${submission.id}`} />
   }
 
   if (route.view === 'vorgang' || route.view === 'questionnaire') {
     const submission = submissions.find((item) => item.id === route.id && item.status === 'eingereicht')
-    if (!submission) sheet = <Redirect to="/portal" />
+    if (!submission) page = <Redirect to="/portal" />
     else if (route.view === 'vorgang')
-      sheet = (
+      page = (
         <VorgangSheet
           key={`vorgang-${submission.id}`}
           account={account}
@@ -510,7 +557,7 @@ export default function PortalApp() {
         />
       )
     else
-      sheet = (
+      page = (
         <QuestionnaireSheet
           key={`fragebogen-${submission.id}`}
           submission={submission}
@@ -530,50 +577,43 @@ export default function PortalApp() {
   }
 
   const navKey = route.view === 'help' ? 'hilfe' : route.view === 'profile' ? 'stammdaten' : 'vorgaenge'
+  const applicantSections: NavSection[] = [
+    { items: navCopy.applicant.map((item) => ({ key: item.key, label: item.label, href: item.path, icon: APPLICANT_ICONS[item.key] })) },
+  ]
 
-  return (
-    <div className={styles.root}>
-      <a href="#inhalt" className={cx(styles.srOnly, styles.skipLink)}>
-        Zum Inhalt springen
-      </a>
-      {bar}
-      <div inert={sheet ? true : undefined} className={styles.rootInner}>
-        <nav className={styles.appNav} aria-label="Portalbereiche">
-          <div className={styles.appNavInner}>
-            {portalContent.nav.applicant.map((item) => (
-              <a
-                key={item.key}
-                href={item.path}
-                className={cx(styles.appNavItem, navKey === item.key && styles.appNavItemActive)}
-                aria-current={navKey === item.key ? 'page' : undefined}
-                onClick={(event) => {
-                  event.preventDefault()
-                  navigate(item.path)
-                }}
-              >
-                {item.label}
-              </a>
-            ))}
-          </div>
-        </nav>
-        {route.view === 'help' ? (
-          <HelpView />
-        ) : (
-          <PortalOverview
-            account={account}
-            submissions={submissions}
-            freshId={freshId}
-            navigate={navigate}
-            startSubmission={startSubmission}
-            registration={{ open: registrationOpen(state), deadline: state.roundSettings.registrationDeadline, status: ROUND_LABEL[state.round] }}
-          />
-        )}
-      </div>
-      {sheet}
-      {demoPanel}
-      <CommandErrorNotice />
-    </div>
+  return shell(
+    navCopy.applicantLabel,
+    applicantSections,
+    navKey,
+    page ??
+      (route.view === 'help' ? (
+        <HelpView />
+      ) : (
+        <PortalOverview
+          account={account}
+          submissions={submissions}
+          freshId={freshId}
+          navigate={navigate}
+          startSubmission={startSubmission}
+          registration={{ open: registrationOpen(state), deadline: state.roundSettings.registrationDeadline, status: ROUND_LABEL[state.round] }}
+        />
+      )),
   )
+}
+
+const APPLICANT_ICONS: Record<string, LucideIcon> = { vorgaenge: FolderOpen, stammdaten: UserRound, hilfe: CircleHelp }
+
+const AREA_ICONS: Record<AdminTab, LucideIcon> = {
+  uebersicht: LayoutDashboard,
+  anmeldungen: ClipboardCheck,
+  zahlungen: Receipt,
+  fragebogen: FileText,
+  jury: Scale,
+  ergebnisse: Award,
+  unterlagen: FolderUp,
+  runde: CalendarRange,
+  exporte: FileSpreadsheet,
+  rechte: KeyRound,
 }
 
 function Redirect({ to }: { to: string }) {
@@ -584,21 +624,9 @@ function Redirect({ to }: { to: string }) {
   return null
 }
 
-function PortalBar({
-  account,
-  perspective,
-  demoOpen,
-  onToggleDemo,
-  onLogout,
-}: {
-  account?: Account | null
-  perspective: Perspective
-  demoOpen?: boolean
-  onToggleDemo?: () => void
-  onLogout?: () => void | Promise<void>
-}) {
+/** Schmale Kopfleiste für Anmelden und Registrieren (ohne Seitenleiste). */
+function PublicBar({ demo }: { demo?: { open: boolean; onToggle: () => void } | null }) {
   const copy = portalContent.bar
-  const name = account ? `${account.profile.firstName} ${account.profile.lastName}`.trim() || account.email : ''
   return (
     <header className={styles.bar}>
       <a href="/" className={styles.barBrand} aria-label="Bayerischer Mittelstandspreis – zur Website">
@@ -606,45 +634,22 @@ function PortalBar({
         <span className={styles.barLabel}>{copy.portalLabel}</span>
       </a>
       {/* Nur Prototyp: Kennzeichnung und Demo-Steuerung. */}
-      {portalDemo && (
+      {demo && (
         <div className={styles.barProto}>
           <span className={styles.protoLabel}>{portalContent.prototype.label}</span>
-          {onToggleDemo && (
-            <button
-              type="button"
-              className={cx(styles.protoReset, demoOpen && styles.protoResetActive)}
-              onClick={onToggleDemo}
-              aria-expanded={demoOpen}
-              data-demo-toggle
-            >
-              <SlidersHorizontal size={13} aria-hidden="true" />
-              <span className={styles.protoResetLabel}>{portalContent.demo.open}</span>
-            </button>
-          )}
+          <button type="button" className={cx(styles.protoReset, demo.open && styles.protoResetActive)} onClick={demo.onToggle} aria-expanded={demo.open} data-demo-toggle>
+            <SlidersHorizontal size={13} aria-hidden="true" />
+            <span className={styles.protoResetLabel}>{portalContent.demo.open}</span>
+          </button>
         </div>
       )}
       <span className={styles.barSpacer} />
-      {perspective !== 'bewerber' && <span className={styles.roleChip}>{portalContent.demo.roleChip[perspective]}</span>}
       <a href="/" className={cx(styles.barCell, styles.barWebsite)} aria-label={copy.websiteLink}>
         <ExternalLink size={14} aria-hidden="true" />
         <span className={styles.barCellLabel} aria-hidden="true">
           {copy.websiteLink}
         </span>
       </a>
-      {account && (
-        <>
-          <div className={styles.barAccount}>
-            <span className={styles.barAccountLabel}>{copy.accountLabel}</span>
-            <span className={styles.barAccountName}>{name}</span>
-          </div>
-          <button type="button" className={styles.barCell} onClick={() => (onLogout ? onLogout() : void logout())} aria-label={copy.logout}>
-            <LogOut size={14} aria-hidden="true" />
-            <span className={styles.barCellLabel} aria-hidden="true">
-              {copy.logout}
-            </span>
-          </button>
-        </>
-      )}
     </header>
   )
 }

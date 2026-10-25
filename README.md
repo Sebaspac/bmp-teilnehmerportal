@@ -22,7 +22,7 @@ pnpm install
 pnpm dev
 ```
 
-Dann http://localhost:3000/portal öffnen. Testzugänge stehen auf der Login-Seite („Testzugänge“) und in der Testanleitung. Oben im Portal öffnet „Demo-Steuerung“ den Perspektivwechsel und die NEWEDGE-Szenarien.
+Dann http://localhost:3000/portal öffnen. Testzugänge stehen auf der Login-Seite („Testzugänge“) und in der Testanleitung. Unten in der Seitenleiste öffnet „Demo-Steuerung“ den Perspektivwechsel und die NEWEDGE-Szenarien.
 
 | Befehl | Wirkung |
 |---|---|
@@ -65,7 +65,9 @@ Abhängigkeiten zeigen nur nach unten: `ui → data → domain`, `ui → domain`
 | `data/mockBackend.ts` | Nur Prototyp: Backend im Browser (localStorage), nutzt `domain/commands.ts` |
 | `data/httpBackend.ts` | Vorlage für das echte Backend (HTTP gegen `/api/portal/…`) |
 | `ui/PortalApp.tsx` | Einstieg: Routing, Perspektiven, Filterung nach Rolle, Demo-Steuerung |
-| `ui/*Sheet.tsx` | Seitenmappen (Anmeldung, Vorgang, Fragebogen, Stammdaten, Verwaltung) |
+| `ui/AppShell.tsx` | App-Rahmen: Seitenleiste mit den Bereichen der Rolle (mobil Schublade), `PageHeader` für Listenansichten |
+| `ui/Page.tsx` | Detailseite mit „Zurück zur …“, Titel, Zusatzzeile, optionaler Schrittleiste (`Steps`) und Aktionsleiste |
+| `ui/*Sheet.tsx` | Detailseiten (Anmeldung, Vorgang, Fragebogen, Stammdaten, Verwaltung) – alle auf `Page` |
 | `ui/AdminView.tsx`, `ui/AdminAreas.tsx`, `ui/JuryAdmin.tsx` | Verwaltung: Übersicht, Listen, Vorgang, Runde, Exporte, Rechte, Jury |
 | `ui/JuryView.tsx` | Juryansicht |
 
@@ -92,11 +94,11 @@ Abhängigkeiten zeigen nur nach unten: `ui → data → domain`, `ui → domain`
 4. Oberfläche und, falls nötig, Export (`domain/exports.ts`).
 
 **Neue Ansicht oder neuer Verwaltungsbereich**
-1. Komponente in `ui/`, Texte in `content/portalContent.ts`.
-2. Route in `parseRoute` (`ui/PortalApp.tsx`), Verwaltungsbereiche über `?bereich=` (`portalContent.admin.tabs`).
+1. Komponente in `ui/`, Texte in `content/portalContent.ts`. Listen beginnen mit `PageHeader`, Details nutzen `Page` – keine Overlays, keine Box in der Box: Abschnitte stehen auf einer weißen Fläche mit Trennlinien.
+2. Route in `parseRoute` (`ui/PortalApp.tsx`). Ein Verwaltungsbereich ist ein Eintrag in `portalContent.admin.tabs` (mit `section`) und erscheint damit in der Seitenleiste; Symbol in `AREA_ICONS`, offene Arbeit in `areaCounts`.
 3. Sichtbarkeit über `can(viewer, recht)` aus `domain/permissions.ts`.
 
-**Neues Recht oder neue Rolle**: `domain/permissions.ts` (`ROLE_PERMISSIONS`). Die Rechte-Matrix unter „Exporte & Rechte“ zeigt die Änderung automatisch.
+**Neues Recht oder neue Rolle**: `domain/permissions.ts` (`ROLE_PERMISSIONS`). Die Rechte-Matrix unter „Rechte & Benutzer“ zeigt die Änderung automatisch.
 
 ### Regeln
 

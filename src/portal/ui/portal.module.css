@@ -81,7 +81,7 @@
   border: 0;
 }
 
-/* ── Kopfleiste ──────────────────────────────────────────────────────────── */
+/* ── Kopfleiste (nur Anmelden und Registrieren) ──────────────────────────── */
 
 .bar {
   --focus: var(--gold);
@@ -153,44 +153,8 @@
   background: rgba(255, 255, 255, 0.03);
 }
 
-.barAccount {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  padding: 0 22px;
-  border-left: 1px solid rgba(239, 191, 4, 0.2);
-  line-height: 1.25;
-  max-width: 280px;
-}
-
-.barAccountLabel {
-  font-family: var(--ff-display);
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: rgba(208, 213, 221, 0.7);
-}
-
-.barAccountName {
-  font-size: 0.875rem;
-  color: #fff;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* ── Übersicht ───────────────────────────────────────────────────────────── */
 
-.band {
-  position: relative;
-  background: var(--navy);
-  color: var(--on-navy);
-  overflow: hidden;
-}
-
-.band::before,
-.sheetHead::before,
 .authIntro::before {
   content: '';
   position: absolute;
@@ -202,73 +166,6 @@
   mix-blend-mode: soft-light;
   mask-image: linear-gradient(to left, #000 0%, rgba(0, 0, 0, 0.6) 40%, transparent 80%);
   pointer-events: none;
-}
-
-.band::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 2px;
-  background: linear-gradient(to right, var(--gold), rgba(239, 191, 4, 0.25) 60%, transparent);
-}
-
-.bandInner {
-  position: relative;
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 44px 32px 48px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 32px 56px;
-  align-items: end;
-}
-
-.bandTitle {
-  font-size: 2.125rem;
-  line-height: 1.08;
-  letter-spacing: -0.02em;
-  font-weight: 700;
-  color: var(--on-navy);
-}
-
-.bandLead {
-  margin-top: 10px;
-  color: var(--on-navy-2);
-  font-size: 1.0625rem;
-}
-
-.bandActions {
-  margin-top: 26px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
-.checklist {
-  min-width: 280px;
-  border-top: 1px solid rgba(255, 255, 255, 0.16);
-}
-
-.checklistHeading {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 12px;
-  font-family: var(--ff-display);
-  font-size: 1.0625rem;
-  font-weight: 700;
-  color: var(--on-navy);
-  padding: 14px 0 6px;
-}
-
-.checklistCount {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--gold);
-  letter-spacing: 0.06em;
-  font-variant-numeric: tabular-nums;
 }
 
 .checkItem {
@@ -306,26 +203,6 @@
   text-underline-offset: 3px;
 }
 
-.main {
-  width: 100%;
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 40px 32px 72px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
-  gap: 40px;
-  align-items: start;
-}
-
-.sectionHead {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 4px 16px;
-  margin-bottom: 14px;
-}
-
 .sectionTitle {
   font-size: 1.375rem;
   font-weight: 700;
@@ -338,46 +215,6 @@
   font-weight: 600;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
-}
-
-.list {
-  background: var(--surface);
-  border: 1px solid var(--line);
-}
-
-.row {
-  position: relative;
-  padding: 24px 28px 24px 24px;
-  display: grid;
-  grid-template-columns: 32px minmax(0, 1fr) auto;
-  gap: 18px 18px;
-  align-items: start;
-}
-
-.rowMark {
-  width: 32px;
-  height: 32px;
-  display: grid;
-  place-items: center;
-  margin-top: 1px;
-}
-
-.rowMarkSubmitted {
-  background: var(--navy);
-  color: var(--gold);
-}
-
-.rowMarkDraft {
-  border: 1.5px dashed rgba(118, 86, 0, 0.55);
-  color: var(--gold-ink);
-}
-
-.row + .row {
-  border-top: 1px solid var(--line);
-}
-
-.rowFresh {
-  animation: landed 2400ms var(--ease-out) both;
 }
 
 @keyframes landed {
@@ -410,12 +247,6 @@
   color: var(--text-secondary);
 }
 
-.typeTag {
-  font-family: var(--ff-display);
-  font-weight: 600;
-  color: var(--navy);
-}
-
 .draftTag {
   font-family: var(--ff-display);
   font-weight: 600;
@@ -429,14 +260,6 @@
   font-family: var(--ff-display);
   font-weight: 600;
   color: var(--gold-ink);
-}
-
-.rowActions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 8px 12px;
 }
 
 .discardConfirm {
@@ -468,13 +291,6 @@
 .emptyBody {
   max-width: 52ch;
   color: var(--text-secondary);
-}
-
-.emptyActions {
-  margin-top: 8px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
 }
 
 .emptyPaths {
@@ -539,120 +355,15 @@
   color: var(--text-secondary);
 }
 
-.processNote {
-  margin-top: 10px;
-  padding-top: 12px;
-  border-top: 1px solid var(--line);
-  font-size: 0.8125rem;
-  line-height: 1.5;
-  color: var(--text-secondary);
-}
-
-.aside {
-  display: grid;
-  gap: 28px;
-}
-
 .panel {
   background: var(--surface);
   border: 1px solid var(--line);
   padding: 24px;
 }
 
-.panelHead {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 14px;
-}
-
 .panelTitle {
   font-size: 1.0625rem;
   font-weight: 700;
-}
-
-.facts {
-  display: grid;
-  gap: 12px;
-}
-
-.fact dt {
-  font-family: var(--ff-display);
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-.fact dd {
-  margin-top: 2px;
-  color: var(--text-heading);
-  overflow-wrap: anywhere;
-}
-
-.factName {
-  font-family: var(--ff-display);
-  font-size: 1.125rem;
-  font-weight: 600;
-  color: var(--text-heading);
-  overflow-wrap: anywhere;
-}
-
-.missing {
-  background: var(--gold-wash);
-  border: 1px solid rgba(239, 191, 4, 0.55);
-  padding: 22px 24px;
-  display: grid;
-  gap: 10px;
-  justify-items: start;
-}
-
-.missing p {
-  color: var(--text-body);
-  font-size: 0.9375rem;
-}
-
-.process {
-  counter-reset: none;
-}
-
-.processIntro {
-  font-size: 0.9375rem;
-  color: var(--text-secondary);
-  margin-bottom: 14px;
-}
-
-.processItem {
-  display: grid;
-  grid-template-columns: 34px 1fr;
-  gap: 2px 10px;
-  padding: 12px 0;
-  border-top: 1px solid var(--line);
-}
-
-.processNum {
-  grid-row: span 2;
-  font-family: var(--ff-display);
-  font-size: 0.8125rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  color: var(--gold-ink);
-  padding-top: 1px;
-}
-
-.processTitle {
-  font-family: var(--ff-display);
-  font-size: 0.9375rem;
-  font-weight: 600;
-  color: var(--text-heading);
-}
-
-.processDesc {
-  font-size: 0.8125rem;
-  line-height: 1.5;
-  color: var(--text-secondary);
 }
 
 .contact {
@@ -725,17 +436,6 @@
 .btnSecondary:hover:not(:disabled) {
   border-color: var(--navy);
   background: rgba(17, 29, 85, 0.04);
-}
-
-.btnGhostOnNavy {
-  background: transparent;
-  color: #fff;
-  border-color: rgba(255, 255, 255, 0.35);
-}
-
-.btnGhostOnNavy:hover:not(:disabled) {
-  border-color: #fff;
-  background: rgba(255, 255, 255, 0.06);
 }
 
 .btnSmall {
@@ -1153,12 +853,6 @@
   margin-top: 2px;
 }
 
-.counterRow {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-}
-
 .counter {
   margin-left: auto;
   font-size: 0.8125rem;
@@ -1234,12 +928,6 @@
 .fieldset + .fieldset > .legend {
   padding-top: 30px;
   border-top: 1px solid var(--line);
-}
-
-.legendNote {
-  margin-top: -10px;
-  font-size: 0.875rem;
-  color: var(--text-secondary);
 }
 
 .check {
@@ -1454,37 +1142,7 @@
   color: #8a5a00;
 }
 
-/* ── Mappe (Seitenpanel über dem Portal) ─────────────────────────────────── */
-
-.scrim {
-  position: fixed;
-  inset: 60px 0 0;
-  z-index: 60;
-  background: rgba(8, 13, 40, 0.58);
-  animation: scrimIn 240ms ease-out both;
-}
-
-.sheet {
-  position: fixed;
-  top: 60px;
-  right: 0;
-  bottom: 0;
-  z-index: 61;
-  width: min(780px, 100%);
-  display: flex;
-  flex-direction: column;
-  background: var(--surface);
-  box-shadow: -18px 0 48px -16px rgba(8, 13, 40, 0.45);
-  animation: sheetIn 340ms var(--ease-out) both;
-}
-
-.sheetClosing {
-  animation: sheetOut 200ms ease-in both;
-}
-
-.scrimClosing {
-  animation: scrimOut 200ms ease-in both;
-}
+/* ── Assistenten: Schritte, Aktionsleiste ─────────────────────────────────── */
 
 @keyframes sheetIn {
   from {
@@ -1514,57 +1172,6 @@
   to {
     opacity: 0;
   }
-}
-
-.sheetHead {
-  position: relative;
-  flex-shrink: 0;
-  background: var(--navy);
-  color: var(--on-navy);
-  padding: 22px 32px 0;
-  overflow: hidden;
-}
-
-.sheetTitleRow {
-  position: relative;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  padding-bottom: 20px;
-}
-
-.sheetTitle {
-  font-size: 1.5rem;
-  font-weight: 700;
-  line-height: 1.15;
-  letter-spacing: -0.015em;
-  color: var(--on-navy);
-}
-
-.sheetSubtitle {
-  margin-top: 6px;
-  font-size: 0.9375rem;
-  color: var(--on-navy-2);
-}
-
-.sheetClose {
-  flex-shrink: 0;
-  width: 44px;
-  height: 44px;
-  margin: -6px -10px 0 0;
-  display: grid;
-  place-items: center;
-  background: none;
-  border: 1px solid transparent;
-  color: #fff;
-  cursor: pointer;
-  transition: border-color 160ms ease, background-color 160ms ease;
-}
-
-.sheetClose:hover {
-  border-color: rgba(255, 255, 255, 0.35);
-  background: rgba(255, 255, 255, 0.06);
 }
 
 .steps {
@@ -1656,24 +1263,6 @@ button.step:not(:disabled):hover .stepLabel {
   border-color: #fff;
   color: var(--navy);
   box-shadow: 0 0 0 4px rgba(239, 191, 4, 0.35);
-}
-
-.sheetBody {
-  flex: 1;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 32px 32px 48px;
-}
-
-.sheetFoot {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 32px;
-  border-top: 1px solid var(--line);
-  background: var(--surface-2);
 }
 
 .sheetFootStart {
@@ -2022,7 +1611,7 @@ button.step:not(:disabled):hover .stepLabel {
   color: var(--text-heading);
 }
 
-/* ── Prototyp-Hinweis (in der Kopfleiste) ───────────────────────────────── */
+/* ── Prototyp-Hinweis (Seitenleiste, Kopfleiste) ─────────────────────────── */
 
 .barProto {
   display: flex;
@@ -2074,22 +1663,9 @@ button.step:not(:disabled):hover .stepLabel {
   color: var(--text-muted);
 }
 
-.skeletonBand {
-  height: 200px;
-  background: var(--navy);
-}
-
 /* ── Responsiv ───────────────────────────────────────────────────────────── */
 
 @media (max-width: 1023px) {
-  .main {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .aside {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-items: start;
-  }
 
   .auth {
     grid-template-columns: minmax(0, 1fr);
@@ -2132,10 +1708,8 @@ button.step:not(:disabled):hover .stepLabel {
   }
 
   .barLabel,
-  .barAccount,
   .barCellLabel,
   .barWebsite,
-  .protoNote,
   .protoReset svg {
     display: none;
   }
@@ -2224,46 +1798,7 @@ button.step:not(:disabled):hover .stepLabel {
     justify-content: center;
   }
 
-  .bandInner {
-    grid-template-columns: minmax(0, 1fr);
-    padding: 32px 20px 36px;
-  }
-
-  .bandTitle {
-    font-size: 1.75rem;
-  }
-
-  .checklist {
-    min-width: 0;
-  }
-
-  .main {
-    padding: 28px 16px 56px;
-    gap: 32px;
-  }
-
-  .aside {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .row {
-    grid-template-columns: 28px minmax(0, 1fr);
-    gap: 14px 14px;
-    padding: 20px 18px 20px 16px;
-  }
-
-  .rowMark {
-    width: 28px;
-    height: 28px;
-  }
-
-  .rowActions {
-    grid-column: 2 / -1;
-    justify-content: flex-start;
-  }
-
-  .discardConfirm,
-  .rowProcess {
+  .discardConfirm {
     grid-column: 1 / -1;
   }
 
@@ -2295,28 +1830,12 @@ button.step:not(:disabled):hover .stepLabel {
     padding: 28px 20px 40px;
   }
 
-  .checklistComplete {
-    display: none;
-  }
-
   .grid2,
   .gridZip,
   .paths,
   .choicesRow,
   .fbGrid {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .sheet {
-    width: 100%;
-  }
-
-  .sheetHead {
-    padding: 16px 20px 0;
-  }
-
-  .sheetTitle {
-    font-size: 1.25rem;
   }
 
   /* Mobil nur Nummern; der Name bleibt für Screenreader erhalten (kein display:none). */
@@ -2336,14 +1855,6 @@ button.step:not(:disabled):hover .stepLabel {
 
   .stepActive {
     flex: 1;
-  }
-
-  .sheetBody {
-    padding: 24px 20px 40px;
-  }
-
-  .sheetFoot {
-    padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
   }
 
   .savedNote {
@@ -2366,13 +1877,6 @@ button.step:not(:disabled):hover .stepLabel {
   background: #991515;
 }
 
-.rootInner,
-.mainWrap {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-}
-
 .skipLink:focus {
   position: fixed;
   top: 8px;
@@ -2390,19 +1894,10 @@ button.step:not(:disabled):hover .stepLabel {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sheet,
-  .sheetClosing,
-  .scrim,
-  .scrimClosing,
   .done,
   .doneArt,
-  .rowFresh,
   .letter {
     animation: none !important;
-  }
-
-  .rowFresh {
-    background-color: var(--gold-wash);
   }
 
   .spinner {
@@ -2702,19 +2197,6 @@ button.step:not(:disabled):hover .stepLabel {
   min-width: 0;
 }
 
-.nextLabel {
-  font-family: var(--ff-display);
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-.nextStepAct .nextLabel {
-  color: #6b4600;
-}
-
 .nextValue {
   font-family: var(--ff-display);
   font-size: 1rem;
@@ -2730,27 +2212,11 @@ button.step:not(:disabled):hover .stepLabel {
   color: #6b4600;
 }
 
-.rowTitleLink {
-  color: inherit;
-  text-decoration: underline;
-  text-decoration-color: transparent;
-  text-underline-offset: 4px;
-  transition: text-decoration-color 160ms ease;
-}
-
-.rowTitleLink:hover {
-  text-decoration-color: currentColor;
-}
-
 .select:disabled {
   background-color: var(--surface-2);
   color: var(--text-muted);
   border-color: var(--line);
   cursor: not-allowed;
-}
-
-.sheetFoot .btn {
-  white-space: nowrap;
 }
 
 .inviteToggle {
@@ -2775,20 +2241,6 @@ button.step:not(:disabled):hover .stepLabel {
 }
 
 /* ── Vorgang (Bewerbersicht) ─────────────────────────────────────────────── */
-
-.sheetMeta {
-  position: relative;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 14px;
-  padding-bottom: 18px;
-}
-
-.sheetMetaNote {
-  font-size: 0.75rem;
-  color: var(--on-navy-3);
-}
 
 .phaseCard {
   margin-top: 26px;
@@ -2986,15 +2438,6 @@ details[open] > .blockToggle::after {
   color: var(--navy);
 }
 
-.inviteDetails > summary {
-  list-style: none;
-  width: fit-content;
-}
-
-.inviteDetails > summary::-webkit-details-marker {
-  display: none;
-}
-
 .letter {
   position: relative;
   margin-top: 14px;
@@ -3108,67 +2551,6 @@ details[open] > .blockToggle::after {
 
 /* ── Navigation (Bewerber & Verwaltung) ──────────────────────────────────── */
 
-.appNav,
-.subnav {
-  background: var(--surface);
-  border-bottom: 1px solid var(--line);
-}
-
-.appNavInner,
-.subnavInner {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 0 32px;
-  display: flex;
-  gap: 4px;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.appNavItem,
-.subnavItem {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  min-height: 50px;
-  padding: 0 14px;
-  background: none;
-  border: 0;
-  border-bottom: 3px solid transparent;
-  font-family: var(--ff-display);
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-  text-decoration: none;
-  cursor: pointer;
-  transition: color 160ms ease, border-color 160ms ease;
-}
-
-.appNavItem:hover,
-.subnavItem:hover {
-  color: var(--navy);
-}
-
-.appNavItemActive,
-.subnavItemActive {
-  color: var(--navy);
-  border-bottom-color: var(--gold);
-}
-
-.roleChip {
-  display: flex;
-  align-items: center;
-  padding: 0 18px;
-  border-left: 1px solid rgba(239, 191, 4, 0.2);
-  font-family: var(--ff-display);
-  font-size: 0.6875rem;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--gold);
-  white-space: nowrap;
-}
-
 .protoResetActive {
   border-color: var(--gold);
   color: var(--gold);
@@ -3176,86 +2558,12 @@ details[open] > .blockToggle::after {
 
 /* ── Vorgangsliste: Phase + nächster Schritt ─────────────────────────────── */
 
-.rowProcess {
-  grid-column: 2 / -1;
-  display: grid;
-  gap: 12px;
-}
-
-.rowNext {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 10px;
-  padding: 10px 12px;
-  font-size: 0.875rem;
-}
-
-.rowNextAct {
-  background: #fff8e1;
-  color: #6b4600;
-}
-
-.rowNextWait {
-  background: var(--surface-2);
-  color: var(--text-secondary);
-}
-
 .rowNextLabel {
   font-family: var(--ff-display);
   font-weight: 600;
 }
 
-.rowNextBtn {
-  margin-left: auto;
-}
-
 /* ── Verwaltung ──────────────────────────────────────────────────────────── */
-
-.bandAdmin .bandInner {
-  padding: 32px 32px 26px;
-  align-items: center;
-}
-
-.roundBox {
-  display: grid;
-  gap: 6px;
-  min-width: 280px;
-}
-
-.roundLabel {
-  font-family: var(--ff-display);
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: var(--on-navy-2);
-}
-
-.selectOnNavy {
-  background-color: rgba(255, 255, 255, 0.08);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23ffffff' stroke-width='1.6'/%3E%3C/svg%3E");
-  border-color: rgba(255, 255, 255, 0.35);
-  color: #fff;
-}
-
-.selectOnNavy:hover {
-  border-color: #fff;
-}
-
-.selectOnNavy:focus {
-  border-color: var(--gold);
-  box-shadow: inset 0 0 0 1px var(--gold);
-}
-
-.selectOnNavy option {
-  color: #101828;
-}
-
-.roundHint {
-  font-size: 0.75rem;
-  line-height: 1.4;
-  color: var(--on-navy-3);
-  max-width: 34ch;
-}
 
 .phaseCounts {
   position: relative;
@@ -3306,13 +2614,6 @@ details[open] > .blockToggle::after {
   color: var(--on-navy-2);
 }
 
-.adminMain {
-  width: 100%;
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 28px 32px 72px;
-}
-
 .toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -3351,12 +2652,6 @@ details[open] > .blockToggle::after {
 
 .root .searchInput:focus-visible {
   outline: none;
-}
-
-.chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
 }
 
 .chip {
@@ -3489,40 +2784,11 @@ details[open] > .blockToggle::after {
   white-space: nowrap;
 }
 
-.tableCompact {
-  font-size: 0.875rem;
-}
-
-.tableCompact th,
-.tableCompact td {
-  padding: 8px 10px;
-}
-
 .tableEmpty {
   padding: 28px;
   background: var(--surface);
   border: 1px solid var(--line);
   color: var(--text-secondary);
-}
-
-.moreGrid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-}
-
-.panelMuted {
-  background: #fafaf9;
-}
-
-.roundList {
-  margin-top: 12px;
-  display: grid;
-  gap: 4px;
-  font-size: 0.875rem;
-  color: var(--text-secondary);
-  list-style: decimal;
-  padding-left: 20px;
 }
 
 /* Verwaltung · Vorgang */
@@ -3728,22 +2994,6 @@ details[open] > .blockToggle::after {
 
 /* ── Jury ────────────────────────────────────────────────────────────────── */
 
-.confidentialOnNavy {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  max-width: 360px;
-  padding: 10px 12px;
-  border: 1px solid rgba(239, 191, 4, 0.55);
-  font-size: 0.875rem;
-  color: #fff;
-}
-
-.confidentialOnNavy svg {
-  flex-shrink: 0;
-  color: var(--gold);
-}
-
 .juryList {
   display: grid;
   gap: 14px;
@@ -3763,22 +3013,6 @@ details[open] > .blockToggle::after {
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px 16px;
-}
-
-.juryGrid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 20px;
-}
-
-.juryGrid fieldset {
-  border: 0;
-  min-width: 0;
-}
-
-.juryGrid fieldset:disabled .pill {
-  opacity: 0.45;
-  cursor: not-allowed;
 }
 
 /* ── Hilfe ───────────────────────────────────────────────────────────────── */
@@ -4073,9 +3307,6 @@ details[open] > .faqQuestion::after {
 }
 
 /* Schrittleiste mit vielen Schritten: nur Nummern */
-.stepsDense .step {
-  gap: 0;
-}
 
 .progressStep {
   font-weight: 600;
@@ -4244,13 +3475,6 @@ details[open] > .faqQuestion::after {
   }
 }
 
-@media (max-width: 960px) {
-  .barAccount,
-  .protoNote {
-    display: none;
-  }
-}
-
 @media (max-width: 1023px) {
   .phaseCounts {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -4326,10 +3550,6 @@ details[open] > .faqQuestion::after {
     text-align: left;
     padding-top: 10px !important;
   }
-
-  .moreGrid {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 @media (max-width: 767px) {
@@ -4404,35 +3624,16 @@ details[open] > .faqQuestion::after {
     margin-left: 0;
   }
 
-  .appNavInner,
-  .subnavInner {
-    padding: 0 12px;
-  }
-
   /* Weitere Bereiche rechts angedeutet: Die Leiste lässt sich seitlich wischen. */
-  .subnavInner {
-    mask-image: linear-gradient(to right, #000 82%, transparent);
-    padding-right: 40px;
-  }
-
-  .bandAdmin .bandInner {
-    padding: 26px 20px 22px;
-  }
-
-  .roundBox {
-    min-width: 0;
-  }
 
   .phaseCounts {
     padding: 0 20px 22px;
   }
 
-  .adminMain,
   .helpMain {
     padding: 22px 16px 56px;
   }
 
-  .juryGrid,
   .helpPhaseFacts {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -4447,32 +3648,14 @@ details[open] > .faqQuestion::after {
     gap: 0;
   }
 
-  .roleChip {
-    display: none;
-  }
-
   .saveLabel {
     display: none;
   }
 
   /* Passt die Hauptaktion nicht mehr in die Zeile, rutscht sie in voller Breite darunter – nie zweizeilig, nie überlappend. */
-  .sheetFoot {
-    flex-wrap: wrap;
-    row-gap: 10px;
-  }
 
   .sheetFootStart {
     flex-shrink: 0;
-  }
-
-  .sheetFoot > .btn:last-child {
-    flex: 1 0 auto;
-  }
-
-  .sheetFoot .btn {
-    white-space: nowrap;
-    padding: 0 16px;
-    letter-spacing: 0.06em;
   }
 
   .saveBtn {
@@ -4491,10 +3674,6 @@ details[open] > .faqQuestion::after {
 
   .progressText {
     white-space: normal;
-  }
-
-  .rowNextBtn {
-    margin-left: 0;
   }
 
   .demoPanel {
@@ -4573,18 +3752,8 @@ details[open] > .faqQuestion::after {
 }
 
 /* Dashboard-Zeile: auf großen Bildschirmen die Zeitleiste, mobil der kompakte Phasenbalken. */
-.rowPhaseLine {
-  display: none;
-}
 
 @media (max-width: 767px) {
-  .rowTimeline {
-    display: none;
-  }
-
-  .rowPhaseLine {
-    display: block;
-  }
 
   /* Zurück-Buttons im Fuß mobil nur als Symbol – der Fuß bleibt einzeilig. */
   .footLabel {
@@ -4597,10 +3766,6 @@ details[open] > .faqQuestion::after {
   }
 
   /* Fragebogen mobil: weniger feste Kopffläche – Fortschritt statt Nummernleiste, kein Untertitel. */
-  .sheetHead:has(.stepsDense) .sheetSubtitle,
-  .stepsDense {
-    display: none;
-  }
 }
 
 @media (max-width: 400px) {
@@ -4647,10 +3812,6 @@ details[open] > .faqQuestion::after {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .rowProcess {
-    grid-column: 1 / -1;
-  }
-
   /* Vorgang mobil: zuerst Stand und nächster Schritt, danach die Zeitleiste. */
   .vorgangTop {
     display: flex;
@@ -4659,10 +3820,6 @@ details[open] > .faqQuestion::after {
 
   .vorgangTop > .phaseCard {
     order: -1;
-  }
-
-  .sheetMetaNote {
-    display: none;
   }
 
 }
@@ -4950,15 +4107,6 @@ details[open] > .faqQuestion::after {
 }
 
 /* Juryansicht */
-.juryAsLabel {
-  display: grid;
-  gap: 6px;
-  margin-top: 14px;
-  max-width: 420px;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.85);
-}
 
 .juryCount {
   margin-bottom: 12px;
@@ -5114,25 +4262,6 @@ details[open] > .faqQuestion::after {
 }
 
 /* ── Rundenverwaltung, Unterlagen, Exporte & Rechte ─────────────────────── */
-
-.roundValue {
-  font-family: var(--ff-display);
-  font-size: 1.0625rem;
-  font-weight: 700;
-  color: #fff;
-}
-
-.textBtnOnNavy {
-  justify-content: flex-start;
-  padding-left: 0;
-  color: var(--gold);
-}
-
-.bandNote {
-  margin-top: 12px;
-  font-size: 0.875rem;
-  color: var(--on-navy-2);
-}
 
 .roundAdmin {
   display: grid;
@@ -5336,29 +4465,6 @@ details[open] > .faqQuestion::after {
 }
 
 /* Exporte & Rechte */
-.exportsRights {
-  display: grid;
-  gap: 36px;
-}
-
-.exportGrid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin: 14px 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.exportCard {
-  display: grid;
-  gap: 6px;
-  align-content: start;
-  justify-items: start;
-  padding: 14px 16px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-}
 
 .exportTitle {
   font-family: var(--ff-display);
@@ -5415,8 +4521,7 @@ details[open] > .faqQuestion::after {
 }
 
 @media (max-width: 1023px) {
-  .roundAdmin,
-  .exportGrid {
+  .roundAdmin {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -5476,4 +4581,1079 @@ details[open] > .faqQuestion::after {
   background: none;
   border: 0;
   cursor: pointer;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   App-Rahmen und flache Seiten
+   Seitenleiste statt Kopfleiste + Unternavigation + Band; Details als eigene Seiten statt Mappen über der Liste;
+   Abschnitte durch Trennlinien statt Box in Box. Steht am Ende und gilt vor den älteren Regeln oben.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+.root {
+  --ground: #f3f2f0;
+  --sidebar-w: 256px;
+  --gutter: clamp(16px, 3vw, 40px);
+}
+
+/* ── Rahmen ──────────────────────────────────────────────────────────────── */
+
+.app {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+  min-height: 100dvh;
+  /* Spalte der Seitenleiste durchgehend Navy, auch wenn der Inhalt länger ist als das Fenster. */
+  background: linear-gradient(to right, var(--navy) var(--sidebar-w), transparent var(--sidebar-w));
+}
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  background: var(--navy);
+  color: var(--on-navy);
+  --focus: var(--gold);
+}
+
+.sidebarHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 22px 20px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.sidebarBrand {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+  color: #fff;
+  text-decoration: none;
+}
+
+.sidebarClose {
+  display: none;
+}
+
+.sidebarBrandLabel {
+  font-family: var(--ff-display);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--on-navy-2);
+}
+
+.sidebarNav {
+  flex: 1;
+  display: grid;
+  align-content: start;
+  gap: 22px;
+  padding: 18px 12px;
+}
+
+.navSectionLabel {
+  padding: 0 12px 6px;
+  font-family: var(--ff-display);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--on-navy-3);
+}
+
+.navList {
+  display: grid;
+  gap: 2px;
+}
+
+.navItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 42px;
+  padding: 0 12px;
+  color: var(--on-navy-2);
+  font-family: var(--ff-display);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.navItem:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: #fff;
+}
+
+.navItemActive,
+.navItemActive:hover {
+  background: rgba(255, 255, 255, 0.13);
+  color: #fff;
+  font-weight: 600;
+}
+
+.navIcon {
+  flex-shrink: 0;
+  color: var(--on-navy-3);
+}
+
+.navItemActive .navIcon {
+  color: var(--gold);
+}
+
+.navLabel {
+  flex: 1;
+  min-width: 0;
+}
+
+.navCount {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  display: inline-grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.14);
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+}
+
+.navItemActive .navCount {
+  background: var(--gold);
+  color: var(--navy);
+}
+
+.sidebarFoot {
+  display: grid;
+  gap: 14px;
+  padding: 16px 20px 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.protoRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.sidebarUser {
+  display: grid;
+  gap: 2px;
+}
+
+.sidebarUserLabel {
+  font-size: 0.75rem;
+  color: var(--on-navy-3);
+}
+
+.sidebarUserName {
+  font-family: var(--ff-display);
+  font-weight: 600;
+  color: #fff;
+  overflow-wrap: anywhere;
+}
+
+.sidebarUserRole {
+  font-size: 0.8125rem;
+  color: var(--on-navy-2);
+}
+
+.sidebarLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 18px;
+}
+
+.sidebarLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--on-navy-2);
+  font-family: var(--ff-display);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.sidebarLink:hover {
+  color: #fff;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.appMain {
+  min-width: 0;
+  padding: 36px var(--gutter) 64px;
+}
+
+.mobileBar,
+.navScrim {
+  display: none;
+}
+
+/* ── Kopf einer Listenansicht ────────────────────────────────────────────── */
+
+.view {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.viewHead {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.viewHeadRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px 24px;
+}
+
+.viewHeadText {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  max-width: 72ch;
+}
+
+.viewTitle {
+  font-size: clamp(1.625rem, 1.2rem + 1.1vw, 2.125rem);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.viewLead {
+  color: var(--text-secondary);
+}
+
+.viewActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.sectionBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-bottom: 12px;
+}
+
+.sectionHeading {
+  font-size: 1.125rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.rightsSection .sectionHeading {
+  margin: 28px 0 12px;
+}
+
+.rightsSection .sectionHeading:first-child {
+  margin-top: 0;
+}
+
+/* ── Detailseite ─────────────────────────────────────────────────────────── */
+
+.page {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.pageHead {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 28px;
+  padding-bottom: 22px;
+  border-bottom: 1px solid var(--line);
+}
+
+.backLink {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  margin-bottom: 6px;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--navy);
+  font-family: var(--ff-display);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.backLink:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+/* Überschriften bekommen beim Seitenwechsel den Fokus (Ansage für Screenreader) – kein Rahmen, sie sind nicht bedienbar. */
+.pageTitle:focus,
+.viewTitle:focus {
+  outline: none;
+}
+
+.pageTitle {
+  font-size: clamp(1.5rem, 1.1rem + 1.1vw, 2rem);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+
+.pageSubtitle {
+  max-width: 80ch;
+  font-size: 0.9375rem;
+  color: var(--text-secondary);
+}
+
+.pageMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-top: 8px;
+}
+
+.pageMetaNote {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.pageMetaAction {
+  margin-left: auto;
+}
+
+/* „Live“ stand früher auf Navy – auf hellem Grund dunkle Goldschrift. */
+.pageMeta .liveBadge {
+  background: var(--gold-wash);
+  color: var(--gold-ink);
+}
+
+.pageBodyRail {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  gap: 44px;
+  align-items: start;
+}
+
+.pageRail {
+  position: sticky;
+  top: 28px;
+}
+
+.pageContent {
+  min-width: 0;
+}
+
+/* Aktionsleiste: bleibt am unteren Rand, solange die Seite länger ist als das Fenster. */
+.pageFoot {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 36px;
+  padding: 14px 0;
+  background: var(--ground);
+  border-top: 1px solid var(--line);
+}
+
+.pageFoot .btn {
+  min-height: 44px;
+}
+
+/* Fortschritt des Fragebogens im Seitenkopf (früher auf Navy). */
+.pageMeta .progressRow {
+  flex: 1 1 100%;
+  padding: 0;
+}
+
+.pageMeta .progressBar {
+  max-width: 320px;
+  background: var(--line);
+}
+
+.pageMeta .progressText {
+  color: var(--text-secondary);
+  white-space: normal;
+}
+
+.pageMeta .progressStep {
+  color: var(--text-heading);
+}
+
+/* ── Schritte eines Assistenten (Leiste links) ───────────────────────────── */
+
+.steps {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+}
+
+.stepItem,
+.stepItem:last-child {
+  position: relative;
+  display: block;
+  flex: none;
+}
+
+.stepItem:not(:last-child)::after {
+  position: absolute;
+  top: 40px;
+  bottom: -2px;
+  left: 13px;
+  width: 2px;
+  height: auto;
+  margin: 0;
+  background: var(--line);
+}
+
+.step {
+  width: 100%;
+  min-height: 48px;
+  padding: 4px 0;
+  color: var(--text-secondary);
+  font-weight: 500;
+  white-space: normal;
+}
+
+.stepNum {
+  background: var(--surface);
+  border-color: var(--line-strong);
+  color: var(--text-secondary);
+}
+
+.stepDone {
+  color: var(--text-body);
+}
+
+.stepActive {
+  color: var(--text-heading);
+  font-weight: 700;
+}
+
+.stepActive .stepNum {
+  background: var(--navy);
+  border-color: var(--navy);
+  color: #fff;
+  box-shadow: 0 0 0 4px var(--gold-wash);
+}
+
+button.step:not(:disabled):hover .stepLabel {
+  color: var(--navy);
+}
+
+/* Hilfe: an der Seitenüberschrift ausgerichtet, Lesebreite statt eigener Mittelspalte. */
+.view .helpMain {
+  max-width: 900px;
+  margin: 0;
+  padding: 0;
+}
+
+/* ── Bewerber: erste Schritte und Vorgangsliste ──────────────────────────── */
+
+.onboarding {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 28px;
+  margin-bottom: 28px;
+  padding: 14px 18px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+.onboardingTitle {
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+
+.onboardingCount {
+  margin-left: 6px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.onboardingList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 24px;
+}
+
+.onboarding .checkItem {
+  padding: 6px 0;
+  border: 0;
+  color: var(--text-secondary);
+}
+
+.onboarding .checkMark {
+  border-color: var(--line-strong);
+}
+
+.onboarding .checkItemDone {
+  color: var(--text-heading);
+}
+
+.onboarding .checkLink {
+  color: var(--navy);
+}
+
+.caseList {
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+.caseRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px 20px;
+  padding: 20px 22px;
+}
+
+.caseRow + .caseRow {
+  border-top: 1px solid var(--line);
+}
+
+.caseRowFresh {
+  background: linear-gradient(var(--gold-wash), var(--gold-wash)) no-repeat;
+  background-size: 100% 100%;
+}
+
+.caseMain {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.caseTitle {
+  font-size: 1.125rem;
+  font-weight: 700;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.caseLink {
+  text-decoration: none;
+}
+
+.caseLink:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.caseMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.caseSide {
+  justify-self: end;
+}
+
+.caseNext {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line);
+}
+
+.caseNextText {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  font-size: 0.9375rem;
+  color: var(--text-body);
+}
+
+.caseNextText svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--text-muted);
+}
+
+.caseNextAct .caseNextText svg {
+  color: #8a5a00;
+}
+
+.caseActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.contact {
+  margin-top: 28px;
+}
+
+/* ── Bewerber: Vorgang ───────────────────────────────────────────────────── */
+
+.phaseCard {
+  margin-top: 28px;
+  padding: 0;
+  background: none;
+}
+
+.blocks {
+  margin-top: 36px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+.block {
+  padding: 20px 22px;
+}
+
+.blockLocked {
+  background: none;
+}
+
+.blockIcon {
+  background: var(--surface-2);
+  border: 0;
+}
+
+.blockTitle {
+  font-size: 1.0625rem;
+}
+
+/* ── Verwaltung: Phasen als Filterzeile, Aufgaben, Listen ─────────────────── */
+
+.phaseCounts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  margin: 0 0 32px;
+  padding: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+.phaseCount {
+  padding: 16px 18px 18px;
+  border: 0;
+  border-top: 3px solid transparent;
+  color: var(--text-heading);
+}
+
+.phaseCount + .phaseCount {
+  border-left: 1px solid var(--line);
+}
+
+.phaseCount:hover {
+  border-top-color: var(--line-strong);
+  background: var(--surface-2);
+}
+
+.phaseCountActive,
+.phaseCountActive:hover {
+  border-top-color: var(--gold);
+  box-shadow: none;
+  background: var(--gold-wash);
+}
+
+.phaseCountNum {
+  font-size: 1.75rem;
+}
+
+.phaseCountLabel {
+  color: var(--text-secondary);
+}
+
+.phaseCountCaption {
+  color: var(--navy);
+}
+
+.phaseCountParts {
+  color: var(--text-muted);
+}
+
+.taskSection {
+  margin-bottom: 36px;
+}
+
+.taskList {
+  gap: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+.taskItem {
+  padding: 16px 20px;
+  background: none;
+  border: 0;
+}
+
+.taskItem + .taskItem {
+  border-top: 1px solid var(--line);
+}
+
+/* ── Verwaltung: Vorgang (Schritte links, Bewerbersicht und Verlauf rechts) ── */
+
+.caseLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 36px;
+  align-items: start;
+}
+
+.caseAside {
+  position: sticky;
+  top: 28px;
+  display: grid;
+  gap: 28px;
+}
+
+.controlList {
+  margin-top: 0;
+  gap: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+.control {
+  background: none;
+  border: 0;
+}
+
+.control + .control {
+  border-top: 1px solid var(--line);
+}
+
+.controlLocked {
+  background: none;
+}
+
+.controlHead {
+  padding: 18px 20px 8px;
+  border-bottom: 0;
+}
+
+.controlBody {
+  padding: 4px 20px 20px 60px;
+}
+
+.logBox {
+  padding: 0;
+  background: none;
+}
+
+.logBox .miniHeading,
+.caseAside .miniHeading {
+  margin-bottom: 10px;
+}
+
+/* Besetzung je Jury-Art: Spalten mit Trennlinie statt umrahmter Kästen. */
+.juryAssignGroup {
+  padding: 10px 0 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.juryAssignLegend {
+  padding: 0 0 6px;
+}
+
+/* Rechte-Matrix: Zeilennamen in normaler Schreibung. */
+.matrix tbody th {
+  background: var(--surface);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-heading);
+}
+
+/* ── Jury und Exporte als Listen ─────────────────────────────────────────── */
+
+.juryList {
+  gap: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+.juryItem {
+  padding: 22px;
+  background: none;
+  border: 0;
+}
+
+.juryItem + .juryItem {
+  border-top: 1px solid var(--line);
+}
+
+.juryAs {
+  display: grid;
+  gap: 6px;
+  max-width: 360px;
+}
+
+.confidentialNote {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #fff6db;
+  font-family: var(--ff-display);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #6b4600;
+}
+
+.exportList {
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+.exportRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px 20px;
+  padding: 16px 20px;
+}
+
+.exportRow + .exportRow {
+  border-top: 1px solid var(--line);
+}
+
+.exportText {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.exportRow .exportCount {
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* ── Demo-Steuerung: neben der Seitenleiste ───────────────────────────────── */
+
+.demoPanel {
+  top: auto;
+  bottom: 16px;
+  left: calc(var(--sidebar-w) + 16px);
+}
+
+/* ── Klein: Leiste als Schublade, alles einspaltig ───────────────────────── */
+
+@media (max-width: 1023px) {
+  .app {
+    grid-template-columns: minmax(0, 1fr);
+    background: none;
+  }
+
+  .mobileBar {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 16px;
+    background: var(--navy);
+    color: #fff;
+    --focus: var(--gold);
+  }
+
+  .mobileBrand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #fff;
+    font-family: var(--ff-display);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    text-decoration: none;
+  }
+
+  .menuButton {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 0 14px;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    color: #fff;
+    font-family: var(--ff-display);
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 66;
+    width: min(300px, 86vw);
+    visibility: hidden;
+    transform: translateX(-100%);
+    transition: transform 220ms var(--ease-out), visibility 0s linear 220ms;
+  }
+
+  .sidebarClose {
+    display: inline-grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    margin: -8px -10px 0 0;
+    background: transparent;
+    border: 0;
+    color: #fff;
+    cursor: pointer;
+  }
+
+  .sidebarOpen {
+    visibility: visible;
+    transform: none;
+    transition: transform 220ms var(--ease-out);
+  }
+
+  .navScrim {
+    position: fixed;
+    inset: 0;
+    z-index: 65;
+    display: block;
+    background: rgba(10, 16, 44, 0.45);
+  }
+
+  .appMain {
+    padding: 22px 16px 48px;
+  }
+
+  .pageBodyRail,
+  .caseLayout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 24px;
+  }
+
+  .pageRail,
+  .caseAside {
+    position: static;
+  }
+
+  /* Schritte waagerecht mit Nummern; der aktuelle zeigt seinen Namen. */
+  .steps {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .stepItem {
+    display: flex;
+    align-items: center;
+    flex: 1;
+  }
+
+  .stepItem:last-child {
+    flex: 0 0 auto;
+  }
+
+  .stepItem:not(:last-child)::after {
+    position: static;
+    flex: 1;
+    width: auto;
+    height: 2px;
+    margin: 0 8px;
+  }
+
+  .step {
+    width: auto;
+  }
+
+  .stepLabel {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+
+  .phaseCounts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .phaseCount:nth-child(3) {
+    border-left: 0;
+  }
+
+  .phaseCount:nth-child(n + 3) {
+    border-top: 1px solid var(--line);
+  }
+
+  .demoPanel {
+    left: 16px;
+    right: 16px;
+    width: auto;
+  }
+}
+
+@media (max-width: 639px) {
+  .caseRow {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 18px 16px;
+  }
+
+  .caseSide {
+    justify-self: start;
+    grid-row: 2;
+  }
+
+  .controlBody {
+    padding-left: 20px;
+  }
+
+  .exportRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .pageMetaAction {
+    margin-left: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar,
+  .sidebarOpen {
+    transition: none;
+  }
 }

@@ -9,6 +9,7 @@ import {
   login,
   loginAs,
   logout,
+  navLink,
   openApplicantView,
   openArea,
   openCase,
@@ -43,7 +44,7 @@ test('Runde: geschlossene Anmeldung sperrt neue Anmeldungen', async ({ page }) =
 
 test('Exporte: CSV-Dateien für Excel und Mailinglisten', async ({ page }) => {
   await loginAs(page, ACCOUNTS.verwaltung)
-  await openArea(page, 'Exporte & Rechte')
+  await openArea(page, 'Exporte')
 
   const [all] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: /CSV herunterladen\s*:\s*Alle Teilnehmenden/ }).click()])
   expect(all.suggestedFilename()).toMatch(/^bmp-2027_mailing_alle_\d{4}-\d{2}-\d{2}\.csv$/)
@@ -70,7 +71,7 @@ test('Rechte: Benutzer anlegen, Sachbearbeitung eingeschränkt, Zugang deaktivie
   test.setTimeout(90_000)
   const main = page.locator('main')
   await loginAs(page, ACCOUNTS.verwaltung)
-  await openArea(page, 'Exporte & Rechte')
+  await openArea(page, 'Rechte & Benutzer')
   await expect(main).toContainText('Rollen und Rechte')
   await expect(main).toContainText('Interne Zugänge')
   await expect(main).toContainText(ACCOUNTS.jury1)
@@ -90,19 +91,18 @@ test('Rechte: Benutzer anlegen, Sachbearbeitung eingeschränkt, Zugang deaktivie
   await expect(page).toHaveURL(/\/portal\/admin$/)
   const nav = adminNav(page)
   await expect(nav).toContainText('Zahlungen')
-  for (const hidden of ['Runde', 'Jury', 'Ergebnisse']) await expect(nav.getByRole('button', { name: hidden, exact: true })).toHaveCount(0)
+  for (const hidden of ['Runde', 'Jury', 'Ergebnisse', 'Rechte & Benutzer']) await expect(navLink(page, hidden)).toHaveCount(0)
   await openCase(page, /Frankenkeramik/)
   await expect(sheet(page)).toContainText('Nur lesen')
   await expect(sheet(page).getByRole('button', { name: 'Jury 2 starten', exact: true })).toBeDisabled()
   await page.keyboard.press('Escape')
   await expect(sheet(page)).toBeHidden()
-  await openArea(page, 'Exporte & Rechte')
-  await expect(main).toContainText('Exporte')
-  await expect(main).not.toContainText('Rollen und Rechte')
+  await openArea(page, 'Exporte')
+  await expect(main).toContainText('Alle Teilnehmenden')
   await logout(page)
 
   await loginAs(page, ACCOUNTS.verwaltung)
-  await openArea(page, 'Exporte & Rechte')
+  await openArea(page, 'Rechte & Benutzer')
   await page.locator('tr', { hasText: 'petra.test@bmp.example' }).getByRole('checkbox').uncheck()
   await logout(page)
   await login(page, 'petra.test@bmp.example', password)

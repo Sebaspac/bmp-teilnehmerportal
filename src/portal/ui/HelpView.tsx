@@ -2,6 +2,7 @@
 
 import React from 'react'
 
+import { PageHeader } from '@/portal/ui/AppShell'
 import { cx } from '@/portal/ui/fields'
 import { PHASES } from '@/portal/domain/process'
 import { portalContent } from '@/portal/content/portalContent'
@@ -11,17 +12,8 @@ import styles from '@/portal/ui/portal.module.css'
 export function HelpView() {
   const copy = portalContent.help
   return (
-    <main id="inhalt" className={styles.mainWrap}>
-      <section className={cx(styles.band, styles.bandAdmin, styles.onNavy)} aria-labelledby="help-title">
-        <div className={styles.bandInner}>
-          <div>
-            <h1 className={styles.bandTitle} id="help-title">
-              {copy.title}
-            </h1>
-            <p className={styles.bandLead}>{copy.lead}</p>
-          </div>
-        </div>
-      </section>
+    <div className={styles.view}>
+      <PageHeader title={copy.title} lead={copy.lead} />
 
       <div className={styles.helpMain}>
         <section aria-labelledby="help-phases">
@@ -78,6 +70,6 @@ export function HelpView() {
           </p>
         </section>
       </div>
-    </main>
+    </div>
   )
 }

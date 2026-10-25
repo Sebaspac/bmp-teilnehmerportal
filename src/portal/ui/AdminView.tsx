@@ -37,11 +37,12 @@ import type { PortalCommand } from '@/portal/domain/commands'
 import { can, type Permission, type Role } from '@/portal/domain/permissions'
 import { accountOf, submissionCompany, submittedSubmissions } from '@/portal/domain/selectors'
 import { DOC_KEYS, JURY_TYPES, type JuryStage, type JuryType, type PortalSnapshot, type ProcessState, type ResultStatus, type RoundStatus, type Submission } from '@/portal/domain/types'
-import { DocumentsCell, ExportsRights, RoundAdmin, documentsSummary } from '@/portal/ui/AdminAreas'
+import { DocumentsCell, ExportsSection, RightsSection, RoundAdmin, documentsSummary } from '@/portal/ui/AdminAreas'
+import { PageHeader } from '@/portal/ui/AppShell'
 import { buildExport, buildListExport } from '@/portal/domain/exports'
 import { downloadCsv } from '@/portal/ui/download'
 import { JuryDashboard } from '@/portal/ui/JuryAdmin'
-import { Sheet, type SheetHandle } from '@/portal/ui/Sheet'
+import { Page, type PageHandle } from '@/portal/ui/Page'
 import { ReviewList, formatDate, formatDateTime, reviewGroups } from '@/portal/ui/SubmissionSheet'
 import styles from '@/portal/ui/portal.module.css'
 
@@ -66,6 +67,7 @@ const TAB_OPEN: Record<AdminTab, (process: ProcessState) => boolean> = {
   ergebnisse: (process) => process.jury === 'abgeschlossen' && process.result !== 'einladung' && process.result !== 'keine_einladung',
   unterlagen: (process) => process.result === 'einladung' && (!documentsProgress(process).requested || documentsProgress(process).submitted > 0),
   exporte: () => true,
+  rechte: () => true,
 }
 
 const TAB_ALL: Record<AdminTab, (process: ProcessState) => boolean> = {
@@ -78,6 +80,7 @@ const TAB_ALL: Record<AdminTab, (process: ProcessState) => boolean> = {
   ergebnisse: (process) => process.jury === 'abgeschlossen',
   unterlagen: (process) => process.result === 'einladung',
   exporte: () => true,
+  rechte: () => true,
 }
 
 /** Welches Recht ein Bereich voraussetzt (Sachbearbeitung sieht nur ihre Bereiche). */
@@ -91,9 +94,25 @@ const TAB_PERMISSION: Record<AdminTab, Permission | null> = {
   ergebnisse: 'results',
   unterlagen: 'documents',
   exporte: 'exports',
+  rechte: 'rights',
 }
 
 export const tabAllowed = (viewer: Role, tab: AdminTab) => !TAB_PERMISSION[tab] || can(viewer, TAB_PERMISSION[tab]!)
+
+/** Offene Arbeit je Bereich – die Zahlen in der Seitenleiste. */
+export function areaCounts(state: PortalSnapshot): Partial<Record<AdminTab, number>> {
+  const all = submittedSubmissions(state)
+  const open = (tab: AdminTab) => all.filter((submission) => TAB_OPEN[tab](submission.process)).length
+  return {
+    uebersicht: all.filter((submission) => adminNext(submission.process, submission.type).party === 'verwaltung').length,
+    anmeldungen: all.filter((submission) => submission.process.review !== 'geprueft').length,
+    zahlungen: open('zahlungen'),
+    fragebogen: open('fragebogen'),
+    jury: open('jury'),
+    ergebnisse: open('ergebnisse'),
+    unterlagen: open('unterlagen'),
+  }
+}
 
 /** Aufschlüsselung einer Phase für die Übersicht (nur vorhandene Zustände). */
 function phaseBreakdown(list: Submission[], phase: PhaseNumber): string {
@@ -173,18 +192,6 @@ export function AdminOverview({
   const [exported, setExported] = useState<{ filename: string; count: number } | null>(null)
   const [showDone, setShowDone] = useState(false)
   const inTab = all.filter((submission) => (showDone ? TAB_ALL : TAB_OPEN)[tab](submission.process))
-  const activeTabRef = useRef<HTMLButtonElement>(null)
-
-  // Aktiven Bereich in der (mobil scrollbaren) Tab-Leiste sichtbar machen.
-  // Nur die Leiste seitlich verschieben – scrollIntoView würde den Startpunkt der Tab-Reihenfolge verlegen.
-  useEffect(() => {
-    const item = activeTabRef.current
-    const bar = item?.parentElement
-    if (!item || !bar || bar.scrollWidth <= bar.clientWidth) return
-    const offset = item.getBoundingClientRect().left - bar.getBoundingClientRect().left
-    bar.scrollLeft += offset - 16
-  }, [tab])
-
   // Phasenzähler beziehen sich auf den aktuellen Bereich.
   const counts = useMemo(() => {
     const result: Record<PhaseNumber, number> = { 1: 0, 2: 0, 3: 0, 4: 0 }
@@ -204,28 +211,32 @@ export function AdminOverview({
     return submissionCompany(submission).toLowerCase().includes(needle) || (submission.reference || '').toLowerCase().includes(needle)
   })
 
+  const tabInfo = copy.tabs.find((item) => item.key === tab)!
+  const lead =
+    tab === 'uebersicht' ? (
+      <>
+        {copy.round} · {copy.roundStatus}: <strong>{ROUND_LABEL[state.round]}</strong>
+      </>
+    ) : tab === 'exporte' ? (
+      copy.exportsRights.exportsLead
+    ) : tab === 'rechte' ? (
+      copy.exportsRights.rightsLead
+    ) : undefined
+
   return (
-    <main id="inhalt" className={styles.mainWrap}>
-      <section className={cx(styles.band, styles.bandAdmin, styles.onNavy)} aria-labelledby="admin-title">
-        <div className={styles.bandInner}>
-          <div>
-            <h1 className={styles.bandTitle} id="admin-title">
-              {copy.title}
-            </h1>
-            <p className={styles.bandLead}>
-              {copy.round} · {copy.lead}
-            </p>
-          </div>
-          <div className={styles.roundBox}>
-            <span className={styles.roundLabel}>{copy.roundStatus}</span>
-            <span className={styles.roundValue}>{ROUND_LABEL[state.round]}</span>
-            {can(viewer, 'round') && (
-              <button type="button" className={cx(styles.textBtn, styles.textBtnOnNavy)} onClick={() => navigate('/portal/admin?bereich=runde')}>
-                {copy.manageRound}
-              </button>
-            )}
-          </div>
-        </div>
+    <div className={styles.view}>
+      <PageHeader
+        title={tabInfo.title}
+        lead={lead}
+        actions={
+          tab === 'uebersicht' && can(viewer, 'round') ? (
+            <button type="button" className={cx(styles.btn, styles.btnSecondary, styles.btnSmall)} onClick={() => navigate('/portal/admin?bereich=runde')}>
+              {copy.manageRound}
+            </button>
+          ) : undefined
+        }
+      />
+      {tab === 'uebersicht' && (
         <div className={styles.phaseCounts} role="group" aria-label="Nach Phase filtern">
           {PHASES.map((item) => (
             <button
@@ -248,39 +259,15 @@ export function AdminOverview({
             </button>
           ))}
         </div>
-      </section>
-
-      <nav className={styles.subnav} aria-label="Verwaltungsbereiche">
-        <div className={styles.subnavInner}>
-          {copy.tabs
-            .filter((item) => tabAllowed(viewer, item.key))
-            .map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              ref={tab === item.key ? activeTabRef : undefined}
-              className={cx(styles.subnavItem, tab === item.key && styles.subnavItemActive)}
-              aria-current={tab === item.key ? 'page' : undefined}
-              onClick={() => navigate(item.key === 'uebersicht' ? '/portal/admin' : `/portal/admin?bereich=${item.key}`)}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-      </nav>
-
-      <div className={styles.adminMain}>
-        {copy.tabs.find((item) => item.key === tab)?.title && (
-          <h2 className={styles.sectionTitle} style={{ marginBottom: 14 }}>
-            {copy.tabs.find((item) => item.key === tab)?.title}
-          </h2>
-        )}
+      )}
         {!tabAllowed(viewer, tab) ? (
           <p className={styles.tableEmpty}>{copy.noPermission}</p>
         ) : tab === 'runde' ? (
           <RoundAdmin state={state} />
         ) : tab === 'exporte' ? (
-          <ExportsRights state={state} viewer={viewer} sessionAccountId={sessionAccountId} />
+          <ExportsSection state={state} />
+        ) : tab === 'rechte' ? (
+          <RightsSection state={state} sessionAccountId={sessionAccountId} />
         ) : (
           <>
             {tab === 'jury' && <JuryDashboard state={state} navigate={navigate} />}
@@ -335,8 +322,7 @@ export function AdminOverview({
             <AdminTable rows={rows} tab={tab} state={state} navigate={navigate} viewer={viewer} />
           </>
         )}
-      </div>
-    </main>
+    </div>
   )
 }
 
@@ -408,33 +394,27 @@ function TaskList({ rows, state, navigate, viewer }: { rows: Submission[]; state
 /** Live-Ansicht eines Fragebogens für die Verwaltung: zuletzt gespeicherter Stand, aktualisiert sich mit jeder Speicherung. */
 export function AdminQuestionnaireSheet({ submission, onClose, onOpenCase }: { submission: Submission; onClose: () => void; onOpenCase: () => void }) {
   const copy = portalContent.admin.liveQuestionnaire
-  const sheetRef = React.useRef<SheetHandle>(null)
+  const sheetRef = React.useRef<PageHandle>(null)
   const p = submission.process
   const filled = REQUIRED_FIELDS.filter((field) => isFilled(p.answers, field)).length
   const prizes = prizesOf(p.answers)
   const started = Object.keys(p.answers).length > 0
 
   return (
-    <Sheet
+    <Page
       ref={sheetRef}
       title={submissionCompany(submission)}
       subtitle={copy.subtitle}
       onClose={onClose}
-      steps={
-        <div className={styles.sheetMeta}>
+      backLabel={portalContent.sheet.backTo.list}
+      meta={
+        <>
           <span className={styles.liveBadge}>
             <span className={styles.liveDot} aria-hidden="true" />
             {copy.live}
           </span>
-          <span className={styles.sheetMetaNote}>{copy.liveHint}</span>
-        </div>
-      }
-      footer={
-        <>
-          <button type="button" className={cx(styles.btn, styles.btnSecondary, styles.footClose)} onClick={() => sheetRef.current?.close()}>
-            {portalContent.sheet.close}
-          </button>
-          <button type="button" className={cx(styles.btn, styles.btnSecondary)} onClick={onOpenCase}>
+          <span className={styles.pageMetaNote}>{copy.liveHint}</span>
+          <button type="button" className={cx(styles.btn, styles.btnSecondary, styles.btnSmall, styles.pageMetaAction)} onClick={onOpenCase}>
             {copy.openCase}
           </button>
         </>
@@ -462,7 +442,7 @@ export function AdminQuestionnaireSheet({ submission, onClose, onOpenCase }: { s
         </div>
       </dl>
       {started ? <ReviewList groups={summaryGroups(p.answers)} /> : <p className={styles.tableEmpty}>{copy.none}</p>}
-    </Sheet>
+    </Page>
   )
 }
 
@@ -631,7 +611,7 @@ export function AdminVorgangSheet({
   viewer?: Role
 }) {
   const copy = portalContent.admin.sheet
-  const sheetRef = React.useRef<SheetHandle>(null)
+  const sheetRef = React.useRef<PageHandle>(null)
   const p = submission.process
   const view = applicantView(p, submission.type, submissionCompany(submission))
   const owner = accountOf(state, submission.accountId)
@@ -669,7 +649,7 @@ export function AdminVorgangSheet({
         : { type: 'jury.start', submissionId: id, stage: stage as JuryType }
 
   return (
-    <Sheet
+    <Page
       ref={sheetRef}
       title={submissionCompany(submission)}
       subtitle={
@@ -679,300 +659,298 @@ export function AdminVorgangSheet({
         </>
       }
       onClose={onClose}
-      steps={
-        <div className={styles.sheetMeta}>
-          <StatusBadge label={view.status.label} tone={view.status.tone} onNavy />
-          <span className={styles.sheetMetaNote}>{portalContent.demo.roleChip.admin}</span>
-        </div>
-      }
-      footer={
+      backLabel={portalContent.sheet.backTo.list}
+      meta={
         <>
-          <button type="button" className={cx(styles.btn, styles.btnSecondary, styles.footClose)} onClick={() => sheetRef.current?.close()}>
-            {portalContent.sheet.close}
-          </button>
+          <StatusBadge label={view.status.label} tone={view.status.tone} />
           {onOpenApplicant && (
-            <button type="button" className={cx(styles.btn, styles.btnSecondary)} onClick={onOpenApplicant}>
+            <button type="button" className={cx(styles.btn, styles.btnSecondary, styles.btnSmall, styles.pageMetaAction)} onClick={onOpenApplicant}>
               <Eye size={16} aria-hidden="true" />
-              <FootLabel long={isNomination ? copy.openNominator : copy.openApplicant} short={copy.openShort} />
+              {isNomination ? copy.openNominator : copy.openApplicant}
             </button>
           )}
         </>
       }
     >
-      <section aria-labelledby="admin-applicant-sees">
-        <h3 className={styles.miniHeading} id="admin-applicant-sees">
-          {isNomination ? copy.nominatorSees : copy.applicantSees}
-        </h3>
-        <PhaseTimeline view={view} compact />
-      </section>
-
-      <div className={styles.controlList}>
-        <Control number={1} title={copy.blocks.review} state={REVIEW_LABEL[p.review]} done={p.review === 'geprueft'} readOnly={!can(viewer, 'review')}>
-          <div className={styles.controlActions}>
-            <ControlButton active={p.review === 'in_pruefung'} disabled={!reviewEditable} onClick={() => run({ type: 'review.set', submissionId: id, status: 'in_pruefung' })}>
-              {copy.reviewActions.inReview}
-            </ControlButton>
-            <ControlButton active={p.review === 'rueckfrage'} disabled={!reviewEditable} onClick={() => run({ type: 'review.set', submissionId: id, status: 'rueckfrage' })}>
-              {copy.reviewActions.question}
-            </ControlButton>
-            <ControlButton primary={reviewEditable && p.review !== 'geprueft'} active={p.review === 'geprueft'} disabled={!reviewEditable} onClick={() => run({ type: 'review.set', submissionId: id, status: 'geprueft' })}>
-              {copy.reviewActions.approve}
-            </ControlButton>
-          </div>
-          {owner && submission.type && (
-            <details className={styles.blockDetails}>
-              <summary className={styles.blockToggle}>{portalContent.vorgang.showDetails}</summary>
-              <div className={styles.blockBody}>
-                <ReviewList groups={reviewGroups(submission.type, submission.self, submission.nomination, owner)} />
-              </div>
-            </details>
-          )}
-        </Control>
-
-        <Control number={2} title={copy.blocks.payment} state={PAYMENT_LABEL[p.payment]} done={p.payment === 'zahlung_eingegangen'} locked={p.review !== 'geprueft'} readOnly={!can(viewer, 'payment')}>
-          <Requirements items={[{ label: copy.requirements.reviewed, met: p.review === 'geprueft' }]} />
-          <div className={styles.controlActions}>
-            <ControlButton
-              primary={nextStep === 'Rechnung stellen'}
-              active={p.payment !== 'keine_rechnung'}
-              disabled={p.review !== 'geprueft' || !beforeRelease || p.payment !== 'keine_rechnung'}
-              onClick={() => run({ type: 'payment.invoice', submissionId: id })}>
-              {copy.paymentActions.invoice}
-            </ControlButton>
-            <ControlButton
-              primary={p.payment === 'rechnung_offen'}
-              active={p.payment === 'zahlung_eingegangen'}
-              disabled={p.payment === 'keine_rechnung' || !beforeRelease}
-              onClick={() => run({ type: 'payment.confirm', submissionId: id })}
-            >
-              {copy.paymentActions.paid}
-            </ControlButton>
-          </div>
-          <p className={styles.noticeInline}>{copy.paymentNote}</p>
-        </Control>
-
-        <Control number={3} title={copy.blocks.release} state={QUESTIONNAIRE_LABEL[p.questionnaire]} done={!beforeRelease} locked={p.review !== 'geprueft'} readOnly={!can(viewer, 'release')}>
-          <Requirements
-            items={[
-              { label: copy.requirements.reviewed, met: p.review === 'geprueft' },
-              { label: copy.requirements.paid, met: p.payment === 'zahlung_eingegangen' },
-              { label: copy.requirements.deadline, met: Boolean(p.deadline) },
-            ]}
-          />
-          <div className={styles.controlRow}>
-            <label className={styles.field} style={{ maxWidth: 240 }}>
-              <span className={styles.label}>{copy.deadline}</span>
-              <input
-                type="date"
-                className={styles.input}
-                value={p.deadline}
-                onChange={(event) => run({ type: 'questionnaire.setDeadline', submissionId: id, deadline: event.target.value })}
-              />
-              {!p.deadline && beforeRelease && state.roundSettings.questionnaireDeadline && (
-                <button
-                  type="button"
-                  className={styles.textBtn}
-                  onClick={() => run({ type: 'questionnaire.setDeadline', submissionId: id, deadline: state.roundSettings.questionnaireDeadline })}
-                >
-                  {copy.useDefaultDeadline(fmtDeadline(state.roundSettings.questionnaireDeadline))}
-                </button>
-              )}
-            </label>
-            <ControlButton
-              primary={nextStep === 'Fragebogen freigeben'}
-              active={!beforeRelease}
-              disabled={!canRelease(p) || !p.deadline || !beforeRelease}
-              onClick={() => run({ type: 'questionnaire.release', submissionId: id })}
-            >
-              {beforeRelease ? copy.release : copy.released}
-            </ControlButton>
-          </div>
-          {(p.questionnaire === 'in_bearbeitung' || p.questionnaire === 'eingereicht') && onOpenQuestionnaire && (
-            <button type="button" className={styles.textBtn} onClick={onOpenQuestionnaire}>
-              <Eye size={15} aria-hidden="true" />
-              {portalContent.admin.overview.viewQuestionnaire}
-            </button>
-          )}
-          {submission.type === 'fremdvorschlag' && <p className={styles.noticeInline}>{copy.nominationNote}</p>}
-          {onlyPendingPrizes(p) && <p className={styles.noticeInline}>{copy.pendingPrizesNote}</p>}
-        </Control>
-
-        <Control
-          number={4}
-          title={copy.blocks.jury}
-          state={JURY_LABEL[p.jury]}
-          done={p.jury === 'abgeschlossen'}
-          locked={p.questionnaire !== 'eingereicht'}
-          confidential
-          readOnly={!can(viewer, 'jury')}
-        >
-          <Requirements
-            items={[
-              { label: copy.requirements.submitted, met: p.questionnaire === 'eingereicht' },
-              { label: copy.requirements.votes, met: allVotes },
-              { label: copy.requirements.points, met: allPoints },
-            ]}
-          />
-          <div className={styles.controlActions}>
-            {(
-              [
-                ['zugewiesen', copy.juryActions.assign],
-                ['jury1', copy.juryActions.jury1],
-                ['jury2', copy.juryActions.jury2],
-                ['abgeschlossen', copy.juryActions.finish],
-              ] as Array<[JuryStage, string]>
-            ).map(([stage, label]) => (
-              <ControlButton
-                key={stage}
-                primary={stageAllowed(stage)}
-                active={p.jury === stage}
-                disabled={!stageAllowed(stage)}
-                // Ohne eigene Auswahl weist „Der Jury zuweisen“ alle Jurymitglieder zu (Standardbesetzung).
-                onClick={() => run(stageCommand(stage))}
-              >
-                {label}
-              </ControlButton>
-            ))}
-          </div>
-          {p.questionnaire === 'eingereicht' && (
-            <>
-              {/* Besetzung je Jury-Art: zuweisen/lösen und den Stand jedes Mitglieds sehen. */}
-              <div className={styles.juryAssign}>
-                {JURY_TYPES.map((type) => (
-                  <fieldset key={type} className={styles.juryAssignGroup} disabled={decided || p.jury === 'abgeschlossen'}>
-                    <legend className={styles.juryAssignLegend}>
-                      {JURY_TYPE_LABEL[type]} <span className={styles.optional}>· {JURY_TYPE_HINT[type]}</span>
-                    </legend>
-                    <ul className={styles.juryAssignList}>
-                      {state.jurors
-                        .filter((juror) => juror.type === type)
-                        .map((juror) => {
-                          const isAssigned = assignedOf(p)[type].includes(juror.id)
-                          const value = type === 'jury1' ? (p.jury1[juror.id] ? portalContent.jury.votes[p.jury1[juror.id]] : null) : (p.jury2[juror.id] ?? null)
-                          return (
-                            <li key={juror.id}>
-                              <label className={styles.check}>
-                                <input type="checkbox" checked={isAssigned} onChange={(event) => run({ type: 'jury.setMember', submissionId: id, jurorId: juror.id, assigned: event.target.checked })} />
-                                <span>{juror.name}</span>
-                              </label>
-                              <span className={styles.juryAssignValue}>{isAssigned ? (value ?? copy.juryOpen) : copy.juryNotAssigned}</span>
-                            </li>
-                          )
-                        })}
-                    </ul>
-                  </fieldset>
-                ))}
-              </div>
-              {p.jury !== 'nicht_zugewiesen' && (
-                <>
-                  <p className={styles.tallyLine}>
-                    Ja {tally.ja} · Vielleicht {tally.vielleicht} · Nein {tally.nein} · Ø Punkte {fmtAverage(tally.average)}
-                  </p>
-                  {portalDemo && (
-                    <button type="button" className={styles.textBtn} onClick={() => portalDemo?.simulateVotes(id)}>
-                      {copy.juryActions.simulate}
-                    </button>
-                  )}
-                </>
-              )}
-            </>
-          )}
-        </Control>
-
-        <Control
-          number={5}
-          title={copy.blocks.result}
-          state={RESULT_LABEL[p.result]}
-          done={p.result === 'einladung' || p.result === 'keine_einladung'}
-          locked={p.jury !== 'abgeschlossen'}
-          readOnly={!can(viewer, 'results')}
-        >
-          <Requirements items={[{ label: copy.requirements.juryDone, met: p.jury === 'abgeschlossen' }]} />
-          <div className={styles.controlActions}>
-            {(
-              [
-                ['ausstehend', copy.resultActions.pending],
-                ['vorbereitet', copy.resultActions.prepare],
-                ['einladung', copy.resultActions.invite],
-                ['keine_einladung', copy.resultActions.decline],
-              ] as Array<[ResultStatus, string]>
-            ).map(([value, label]) => (
-              <ControlButton key={value} active={p.result === value} disabled={p.jury !== 'abgeschlossen'} onClick={() => setResult(value)}>
-                {label}
-              </ControlButton>
-            ))}
-          </div>
-          <p className={styles.noticeInline}>
-            {copy.resultNote} {copy.noMessages}
-          </p>
-        </Control>
-
-        <Control
-          number={6}
-          title={portalContent.admin.tabs.find((item) => item.key === 'unterlagen')!.title}
-          state={documentsSummary(p)}
-          done={documentsProgress(p).requested && documentsProgress(p).approved === documentsProgress(p).total}
-          locked={p.result !== 'einladung'}
-          readOnly={!can(viewer, 'documents')}
-        >
-          <Requirements items={[{ label: portalContent.admin.docs.requirement, met: p.result === 'einladung' }]} />
-          {p.result === 'einladung' && !p.documents && (
+      <div className={styles.caseLayout}>
+        <div className={styles.controlList}>
+          <Control number={1} title={copy.blocks.review} state={REVIEW_LABEL[p.review]} done={p.review === 'geprueft'} readOnly={!can(viewer, 'review')}>
             <div className={styles.controlActions}>
-              <ControlButton primary onClick={() => run({ type: 'documents.request', submissionId: id })}>
-                {portalContent.admin.docs.request}
+              <ControlButton active={p.review === 'in_pruefung'} disabled={!reviewEditable} onClick={() => run({ type: 'review.set', submissionId: id, status: 'in_pruefung' })}>
+                {copy.reviewActions.inReview}
+              </ControlButton>
+              <ControlButton active={p.review === 'rueckfrage'} disabled={!reviewEditable} onClick={() => run({ type: 'review.set', submissionId: id, status: 'rueckfrage' })}>
+                {copy.reviewActions.question}
+              </ControlButton>
+              <ControlButton primary={reviewEditable && p.review !== 'geprueft'} active={p.review === 'geprueft'} disabled={!reviewEditable} onClick={() => run({ type: 'review.set', submissionId: id, status: 'geprueft' })}>
+                {copy.reviewActions.approve}
               </ControlButton>
             </div>
-          )}
-          {p.documents && (
-            <ul className={cx(styles.juryAssignList, styles.docReviewList)}>
-              {DOC_KEYS.map((key) => {
-                const item = p.documents!.items[key]
-                return (
-                  <li key={key}>
-                    <span className={styles.tableStack}>
-                      <strong>{DOC_META[key].label}</strong>
-                      <span className={styles.tableSubText}>{item.fileName ?? (item.value ? item.value.slice(0, 120) : portalContent.admin.docs.notSubmitted)}</span>
-                    </span>
-                    <span className={styles.docActions}>
-                      <span className={cx(styles.docState, styles[`docState_${item.status}`])}>{DOC_STATUS_LABEL[item.status]}</span>
-                      <ControlButton active={item.status === 'geprueft'} disabled={item.status === 'offen'} onClick={() => run({ type: 'documents.review', submissionId: id, key, status: 'geprueft' })}>
-                        {portalContent.admin.docs.approve}
-                      </ControlButton>
-                      <ControlButton
-                        active={item.status === 'nachbesserung'}
-                        disabled={item.status === 'offen'}
-                        onClick={() => run({ type: 'documents.review', submissionId: id, key, status: 'nachbesserung', note: portalContent.admin.docs.fixNote })}
-                      >
-                        {portalContent.admin.docs.fix}
-                      </ControlButton>
-                    </span>
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-          <p className={styles.noticeInline}>{portalContent.admin.docs.placeholder}</p>
-        </Control>
+            {owner && submission.type && (
+              <details className={styles.blockDetails}>
+                <summary className={styles.blockToggle}>{portalContent.vorgang.showDetails}</summary>
+                <div className={styles.blockBody}>
+                  <ReviewList groups={reviewGroups(submission.type, submission.self, submission.nomination, owner)} />
+                </div>
+              </details>
+            )}
+          </Control>
 
-        <section className={styles.logBox} aria-labelledby="admin-log">
-          <h3 className={styles.miniHeading} id="admin-log">
-            {copy.log}
-          </h3>
-          {p.log.length ? (
-            <ol className={styles.logList}>
-              {[...p.log].reverse().map((entry, index) => (
-                <li key={`${entry.at}-${index}`}>
-                  <span className={styles.logTime}>{formatDateTime(entry.at)}</span>
-                  <span>{entry.text}</span>
-                </li>
+          <Control number={2} title={copy.blocks.payment} state={PAYMENT_LABEL[p.payment]} done={p.payment === 'zahlung_eingegangen'} locked={p.review !== 'geprueft'} readOnly={!can(viewer, 'payment')}>
+            <Requirements items={[{ label: copy.requirements.reviewed, met: p.review === 'geprueft' }]} />
+            <div className={styles.controlActions}>
+              <ControlButton
+                primary={nextStep === 'Rechnung stellen'}
+                active={p.payment !== 'keine_rechnung'}
+                disabled={p.review !== 'geprueft' || !beforeRelease || p.payment !== 'keine_rechnung'}
+                onClick={() => run({ type: 'payment.invoice', submissionId: id })}>
+                {copy.paymentActions.invoice}
+              </ControlButton>
+              <ControlButton
+                primary={p.payment === 'rechnung_offen'}
+                active={p.payment === 'zahlung_eingegangen'}
+                disabled={p.payment === 'keine_rechnung' || !beforeRelease}
+                onClick={() => run({ type: 'payment.confirm', submissionId: id })}
+              >
+                {copy.paymentActions.paid}
+              </ControlButton>
+            </div>
+            <p className={styles.noticeInline}>{copy.paymentNote}</p>
+          </Control>
+
+          <Control number={3} title={copy.blocks.release} state={QUESTIONNAIRE_LABEL[p.questionnaire]} done={!beforeRelease} locked={p.review !== 'geprueft'} readOnly={!can(viewer, 'release')}>
+            <Requirements
+              items={[
+                { label: copy.requirements.reviewed, met: p.review === 'geprueft' },
+                { label: copy.requirements.paid, met: p.payment === 'zahlung_eingegangen' },
+                { label: copy.requirements.deadline, met: Boolean(p.deadline) },
+              ]}
+            />
+            <div className={styles.controlRow}>
+              <label className={styles.field} style={{ maxWidth: 240 }}>
+                <span className={styles.label}>{copy.deadline}</span>
+                <input
+                  type="date"
+                  className={styles.input}
+                  value={p.deadline}
+                  onChange={(event) => run({ type: 'questionnaire.setDeadline', submissionId: id, deadline: event.target.value })}
+                />
+                {!p.deadline && beforeRelease && state.roundSettings.questionnaireDeadline && (
+                  <button
+                    type="button"
+                    className={styles.textBtn}
+                    onClick={() => run({ type: 'questionnaire.setDeadline', submissionId: id, deadline: state.roundSettings.questionnaireDeadline })}
+                  >
+                    {copy.useDefaultDeadline(fmtDeadline(state.roundSettings.questionnaireDeadline))}
+                  </button>
+                )}
+              </label>
+              <ControlButton
+                primary={nextStep === 'Fragebogen freigeben'}
+                active={!beforeRelease}
+                disabled={!canRelease(p) || !p.deadline || !beforeRelease}
+                onClick={() => run({ type: 'questionnaire.release', submissionId: id })}
+              >
+                {beforeRelease ? copy.release : copy.released}
+              </ControlButton>
+            </div>
+            {(p.questionnaire === 'in_bearbeitung' || p.questionnaire === 'eingereicht') && onOpenQuestionnaire && (
+              <button type="button" className={styles.textBtn} onClick={onOpenQuestionnaire}>
+                <Eye size={15} aria-hidden="true" />
+                {portalContent.admin.overview.viewQuestionnaire}
+              </button>
+            )}
+            {submission.type === 'fremdvorschlag' && <p className={styles.noticeInline}>{copy.nominationNote}</p>}
+            {onlyPendingPrizes(p) && <p className={styles.noticeInline}>{copy.pendingPrizesNote}</p>}
+          </Control>
+
+          <Control
+            number={4}
+            title={copy.blocks.jury}
+            state={JURY_LABEL[p.jury]}
+            done={p.jury === 'abgeschlossen'}
+            locked={p.questionnaire !== 'eingereicht'}
+            confidential
+            readOnly={!can(viewer, 'jury')}
+          >
+            <Requirements
+              items={[
+                { label: copy.requirements.submitted, met: p.questionnaire === 'eingereicht' },
+                { label: copy.requirements.votes, met: allVotes },
+                { label: copy.requirements.points, met: allPoints },
+              ]}
+            />
+            <div className={styles.controlActions}>
+              {(
+                [
+                  ['zugewiesen', copy.juryActions.assign],
+                  ['jury1', copy.juryActions.jury1],
+                  ['jury2', copy.juryActions.jury2],
+                  ['abgeschlossen', copy.juryActions.finish],
+                ] as Array<[JuryStage, string]>
+              ).map(([stage, label]) => (
+                <ControlButton
+                  key={stage}
+                  primary={stageAllowed(stage)}
+                  active={p.jury === stage}
+                  disabled={!stageAllowed(stage)}
+                  // Ohne eigene Auswahl weist „Der Jury zuweisen“ alle Jurymitglieder zu (Standardbesetzung).
+                  onClick={() => run(stageCommand(stage))}
+                >
+                  {label}
+                </ControlButton>
               ))}
-            </ol>
-          ) : (
-            <p className={styles.hint}>{copy.logEmpty}</p>
-          )}
-        </section>
+            </div>
+            {p.questionnaire === 'eingereicht' && (
+              <>
+                {/* Besetzung je Jury-Art: zuweisen/lösen und den Stand jedes Mitglieds sehen. */}
+                <div className={styles.juryAssign}>
+                  {JURY_TYPES.map((type) => (
+                    <fieldset key={type} className={styles.juryAssignGroup} disabled={decided || p.jury === 'abgeschlossen'}>
+                      <legend className={styles.juryAssignLegend}>
+                        {JURY_TYPE_LABEL[type]} <span className={styles.optional}>· {JURY_TYPE_HINT[type]}</span>
+                      </legend>
+                      <ul className={styles.juryAssignList}>
+                        {state.jurors
+                          .filter((juror) => juror.type === type)
+                          .map((juror) => {
+                            const isAssigned = assignedOf(p)[type].includes(juror.id)
+                            const value = type === 'jury1' ? (p.jury1[juror.id] ? portalContent.jury.votes[p.jury1[juror.id]] : null) : (p.jury2[juror.id] ?? null)
+                            return (
+                              <li key={juror.id}>
+                                <label className={styles.check}>
+                                  <input type="checkbox" checked={isAssigned} onChange={(event) => run({ type: 'jury.setMember', submissionId: id, jurorId: juror.id, assigned: event.target.checked })} />
+                                  <span>{juror.name}</span>
+                                </label>
+                                <span className={styles.juryAssignValue}>{isAssigned ? (value ?? copy.juryOpen) : copy.juryNotAssigned}</span>
+                              </li>
+                            )
+                          })}
+                      </ul>
+                    </fieldset>
+                  ))}
+                </div>
+                {p.jury !== 'nicht_zugewiesen' && (
+                  <>
+                    <p className={styles.tallyLine}>
+                      Ja {tally.ja} · Vielleicht {tally.vielleicht} · Nein {tally.nein} · Ø Punkte {fmtAverage(tally.average)}
+                    </p>
+                    {portalDemo && (
+                      <button type="button" className={styles.textBtn} onClick={() => portalDemo?.simulateVotes(id)}>
+                        {copy.juryActions.simulate}
+                      </button>
+                    )}
+                  </>
+                )}
+              </>
+            )}
+          </Control>
+
+          <Control
+            number={5}
+            title={copy.blocks.result}
+            state={RESULT_LABEL[p.result]}
+            done={p.result === 'einladung' || p.result === 'keine_einladung'}
+            locked={p.jury !== 'abgeschlossen'}
+            readOnly={!can(viewer, 'results')}
+          >
+            <Requirements items={[{ label: copy.requirements.juryDone, met: p.jury === 'abgeschlossen' }]} />
+            <div className={styles.controlActions}>
+              {(
+                [
+                  ['ausstehend', copy.resultActions.pending],
+                  ['vorbereitet', copy.resultActions.prepare],
+                  ['einladung', copy.resultActions.invite],
+                  ['keine_einladung', copy.resultActions.decline],
+                ] as Array<[ResultStatus, string]>
+              ).map(([value, label]) => (
+                <ControlButton key={value} active={p.result === value} disabled={p.jury !== 'abgeschlossen'} onClick={() => setResult(value)}>
+                  {label}
+                </ControlButton>
+              ))}
+            </div>
+            <p className={styles.noticeInline}>
+              {copy.resultNote} {copy.noMessages}
+            </p>
+          </Control>
+
+          <Control
+            number={6}
+            title={portalContent.admin.tabs.find((item) => item.key === 'unterlagen')!.title}
+            state={documentsSummary(p)}
+            done={documentsProgress(p).requested && documentsProgress(p).approved === documentsProgress(p).total}
+            locked={p.result !== 'einladung'}
+            readOnly={!can(viewer, 'documents')}
+          >
+            <Requirements items={[{ label: portalContent.admin.docs.requirement, met: p.result === 'einladung' }]} />
+            {p.result === 'einladung' && !p.documents && (
+              <div className={styles.controlActions}>
+                <ControlButton primary onClick={() => run({ type: 'documents.request', submissionId: id })}>
+                  {portalContent.admin.docs.request}
+                </ControlButton>
+              </div>
+            )}
+            {p.documents && (
+              <ul className={cx(styles.juryAssignList, styles.docReviewList)}>
+                {DOC_KEYS.map((key) => {
+                  const item = p.documents!.items[key]
+                  return (
+                    <li key={key}>
+                      <span className={styles.tableStack}>
+                        <strong>{DOC_META[key].label}</strong>
+                        <span className={styles.tableSubText}>{item.fileName ?? (item.value ? item.value.slice(0, 120) : portalContent.admin.docs.notSubmitted)}</span>
+                      </span>
+                      <span className={styles.docActions}>
+                        <span className={cx(styles.docState, styles[`docState_${item.status}`])}>{DOC_STATUS_LABEL[item.status]}</span>
+                        <ControlButton active={item.status === 'geprueft'} disabled={item.status === 'offen'} onClick={() => run({ type: 'documents.review', submissionId: id, key, status: 'geprueft' })}>
+                          {portalContent.admin.docs.approve}
+                        </ControlButton>
+                        <ControlButton
+                          active={item.status === 'nachbesserung'}
+                          disabled={item.status === 'offen'}
+                          onClick={() => run({ type: 'documents.review', submissionId: id, key, status: 'nachbesserung', note: portalContent.admin.docs.fixNote })}
+                        >
+                          {portalContent.admin.docs.fix}
+                        </ControlButton>
+                      </span>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+            <p className={styles.noticeInline}>{portalContent.admin.docs.placeholder}</p>
+          </Control>
+
+        </div>
+
+        <aside className={styles.caseAside}>
+          <section aria-labelledby="admin-applicant-sees">
+            <h2 className={styles.miniHeading} id="admin-applicant-sees">
+              {isNomination ? copy.nominatorSees : copy.applicantSees}
+            </h2>
+            <PhaseTimeline view={view} compact />
+          </section>
+
+          <section className={styles.logBox} aria-labelledby="admin-log">
+            <h2 className={styles.miniHeading} id="admin-log">
+              {copy.log}
+            </h2>
+            {p.log.length ? (
+              <ol className={styles.logList}>
+                {[...p.log].reverse().map((entry, index) => (
+                  <li key={`${entry.at}-${index}`}>
+                    <span className={styles.logTime}>{formatDateTime(entry.at)}</span>
+                    <span>{entry.text}</span>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className={styles.hint}>{copy.logEmpty}</p>
+            )}
+          </section>
+        </aside>
       </div>
-    </Sheet>
+    </Page>
   )
 }
 
@@ -1003,9 +981,9 @@ function Control({
           {done ? <Check size={14} strokeWidth={3} /> : number}
         </span>
         <div className={styles.controlHeadText}>
-          <h3 className={styles.controlTitle} id={`control-${number}`}>
+          <h2 className={styles.controlTitle} id={`control-${number}`}>
             {title}
-          </h3>
+          </h2>
           <span className={styles.controlState}>{state}</span>
         </div>
         {confidential && (

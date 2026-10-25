@@ -10,7 +10,7 @@ import { portalContent } from '@/portal/content/portalContent'
 import { reportCommandError, runCommand, sendCommand } from '@/portal/data/portalClient'
 import { accountOf, submissionCompany, submittedSubmissions } from '@/portal/domain/selectors'
 import { JURY_TYPES, type Juror, type JuryType, type PortalSnapshot, type Submission } from '@/portal/domain/types'
-import { Sheet, type SheetHandle } from '@/portal/ui/Sheet'
+import { Page, type PageHandle } from '@/portal/ui/Page'
 import styles from '@/portal/ui/portal.module.css'
 
 type Navigate = (path: string) => void
@@ -47,14 +47,9 @@ export function JuryDashboard({ state, navigate }: { state: PortalSnapshot; navi
   const openTotal = state.jurors.reduce((sum, juror) => sum + jurorStats(state, juror).open, 0)
 
   return (
-    <section className={styles.juryBoard} aria-labelledby="jury-board-title">
+    <section className={styles.juryBoard} aria-label={copy.title}>
       <div className={styles.juryBoardHead}>
-        <div>
-          <h2 className={styles.sectionTitle} id="jury-board-title">
-            {copy.title}
-          </h2>
-          <p className={styles.juryBoardLead}>{copy.lead}</p>
-        </div>
+        <p className={styles.juryBoardLead}>{copy.lead}</p>
         <button type="button" className={cx(styles.btn, styles.btnPrimary, styles.btnSmall)} onClick={() => navigate('/portal/admin/jury/neu')}>
           <Plus size={15} aria-hidden="true" />
           {copy.create}
@@ -163,7 +158,7 @@ export function JuryDashboard({ state, navigate }: { state: PortalSnapshot; navi
 
 export function NewJurorSheet({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
   const copy = portalContent.admin.juryBoard
-  const sheetRef = useRef<SheetHandle>(null)
+  const sheetRef = useRef<PageHandle>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -186,11 +181,12 @@ export function NewJurorSheet({ onClose, onCreated }: { onClose: () => void; onC
   }
 
   return (
-    <Sheet
+    <Page
       ref={sheetRef}
       title={copy.newTitle}
       subtitle={copy.newSubtitle}
       onClose={onClose}
+      backLabel={portalContent.sheet.backTo.jury}
       footer={
         <>
           <button type="button" className={cx(styles.btn, styles.btnSecondary, styles.footClose)} onClick={() => sheetRef.current?.close()}>
@@ -222,7 +218,7 @@ export function NewJurorSheet({ onClose, onCreated }: { onClose: () => void; onC
           {copy.newNote}
         </p>
       </div>
-    </Sheet>
+    </Page>
   )
 }
 
@@ -230,7 +226,7 @@ export function NewJurorSheet({ onClose, onCreated }: { onClose: () => void; onC
 
 export function JurorSheet({ state, juror, justCreated, onClose }: { state: PortalSnapshot; juror: Juror; justCreated: boolean; onClose: () => void }) {
   const copy = portalContent.admin.juryBoard
-  const sheetRef = useRef<SheetHandle>(null)
+  const sheetRef = useRef<PageHandle>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
   const account = accountOf(state, juror.accountId)
   const stats = jurorStats(state, juror)
@@ -265,11 +261,12 @@ export function JurorSheet({ state, juror, justCreated, onClose }: { state: Port
   }
 
   return (
-    <Sheet
+    <Page
       ref={sheetRef}
       title={juror.name}
       subtitle={`${JURY_TYPE_LABEL[juror.type]} · ${juror.email}`}
       onClose={onClose}
+      backLabel={portalContent.sheet.backTo.jury}
       footer={
         <>
           <div className={styles.sheetFootStart}>
@@ -411,6 +408,6 @@ export function JurorSheet({ state, juror, justCreated, onClose }: { state: Port
           )}
         </section>
       </div>
-    </Sheet>
+    </Page>
   )
 }

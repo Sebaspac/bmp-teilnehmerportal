@@ -8,7 +8,7 @@ import { portalContent } from '@/portal/content/portalContent'
 import { runCommand } from '@/portal/data/portalClient'
 import { isProfileComplete } from '@/portal/domain/selectors'
 import type { Account, PortalGroup, Profile } from '@/portal/domain/types'
-import { Sheet, type SheetHandle } from '@/portal/ui/Sheet'
+import { Page, type PageHandle } from '@/portal/ui/Page'
 import styles from '@/portal/ui/portal.module.css'
 
 type Errors = Partial<Record<'firstName' | 'lastName' | 'group' | 'orgName', string>>
@@ -28,7 +28,7 @@ export function ProfileSheet({
 }) {
   const copy = portalContent.profile
   const labels = portalContent.labels
-  const sheetRef = useRef<SheetHandle>(null)
+  const sheetRef = useRef<PageHandle>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const [profile, setProfile] = useState<Profile>(account.profile)
   const [errors, setErrors] = useState<Errors>({})
@@ -69,11 +69,12 @@ export function ProfileSheet({
   const wasComplete = isProfileComplete(account.profile)
 
   return (
-    <Sheet
+    <Page
       ref={sheetRef}
       title={title}
       subtitle={intro}
       onClose={onClose}
+      backLabel={portalContent.sheet.backTo.overview}
       footer={
         <>
           <div className={styles.sheetFootStart}>
@@ -206,6 +207,6 @@ export function ProfileSheet({
         )}
         <PrivacyNote>{portalContent.privacy.profile}</PrivacyNote>
       </form>
-    </Sheet>
+    </Page>
   )
 }

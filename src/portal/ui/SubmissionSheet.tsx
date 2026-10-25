@@ -28,7 +28,7 @@ import {
   validateSelf,
   type FieldErrors,
 } from '@/portal/domain/registration'
-import { Sheet, SheetSteps, type SheetHandle } from '@/portal/ui/Sheet'
+import { Page, Steps, type PageHandle } from '@/portal/ui/Page'
 import styles from '@/portal/ui/portal.module.css'
 
 const isYoungCompany = (foundedYear: string) =>
@@ -217,7 +217,7 @@ export function SubmissionSheet({
   const copy = portalContent.submission
   const labels = portalContent.labels
   const placeholders = portalContent.placeholders
-  const sheetRef = useRef<SheetHandle>(null)
+  const sheetRef = useRef<PageHandle>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
 
   const prefillSelf = (): SelfData => {
@@ -386,11 +386,12 @@ export function SubmissionSheet({
     const isSelf = submitted.type === 'eigenbewerbung'
     const company = isSelf ? submitted.self.companyName : submitted.nomination.companyName
     return (
-      <Sheet
+      <Page
         ref={sheetRef}
         title={isSelf ? copy.detail.titleSelf : copy.detail.titleNomination}
         subtitle={company}
         onClose={() => onDone(submitted.id)}
+        backLabel={portalContent.sheet.backTo.overview}
         footer={
           <>
             <span />
@@ -423,7 +424,7 @@ export function SubmissionSheet({
           </div>
           <p className={styles.hint}>{portalContent.prototype.noMail}</p>
         </div>
-      </Sheet>
+      </Page>
     )
   }
 
@@ -433,12 +434,13 @@ export function SubmissionSheet({
   const titleSuffix = type ? (isSelf ? copy.type.self.title : copy.type.nomination.title) : ''
 
   return (
-    <Sheet
+    <Page
       ref={sheetRef}
       title={copy.newTitle}
       subtitle={[titleSuffix, companyForTitle].filter(Boolean).join(' · ') || copy.stepOf(step + 1, copy.steps.length)}
       onClose={onClose}
-      steps={<SheetSteps labels={copy.steps} current={step} reachable={reachable} onSelect={jumpTo} />}
+      backLabel={portalContent.sheet.backTo.overview}
+      rail={<Steps labels={copy.steps} current={step} reachable={reachable} onSelect={jumpTo} />}
       footer={
         <>
           <div className={styles.sheetFootStart}>
@@ -812,7 +814,7 @@ export function SubmissionSheet({
           </section>
         )}
       </div>
-    </Sheet>
+    </Page>
   )
 }
 

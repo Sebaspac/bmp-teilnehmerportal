@@ -50,8 +50,8 @@ export const test = base.extend<{ consoleErrors: string[] }>({
 
 /* ── Orte auf der Seite ──────────────────────────────────────────────────── */
 
-/** Die geöffnete Seitenmappe (Vorgang, Fragebogen, Anmeldung …) – ohne das Fenster der Demo-Steuerung. */
-export const sheet = (page: Page) => page.getByRole('dialog').filter({ hasNot: page.getByText('Nur für die Vorführung') }).last()
+/** Die geöffnete Detailseite (Vorgang, Fragebogen, Anmeldung, Jurymitglied …). */
+export const sheet = (page: Page) => page.locator('article[data-portal-page]')
 
 export const demoPanel = (page: Page) => page.getByRole('dialog', { name: 'Demo-Steuerung' })
 
@@ -78,12 +78,20 @@ export async function loginAs(page: Page, email: string, password: string = DEMO
   await page.waitForURL((url) => !url.pathname.endsWith('/anmelden'))
 }
 
+/** Auf kleinen Bildschirmen liegt die Seitenleiste hinter „Menü“ – vor einem Klick darin öffnen. */
+export async function openMenuIfCollapsed(page: Page) {
+  const menu = page.getByRole('button', { name: 'Menü', exact: true })
+  if (await menu.isVisible()) await menu.click()
+}
+
 export async function logout(page: Page) {
+  await openMenuIfCollapsed(page)
   await page.getByRole('button', { name: 'Abmelden' }).click()
   await page.waitForURL('**/portal/anmelden')
 }
 
 export async function openDemoPanel(page: Page) {
+  await openMenuIfCollapsed(page)
   await page.getByRole('button', { name: 'Demo-Steuerung' }).click()
   await expect(demoPanel(page)).toBeVisible()
 }
@@ -122,9 +130,15 @@ export async function control(page: Page, name: string) {
   await expect(button).toHaveAttribute('aria-pressed', 'true')
 }
 
+/** Bereich der Seitenleiste – der Name kann eine Zahl offener Vorgänge tragen („Jury 1 offen“). */
+export const navLink = (page: Page, name: string, includeHidden = false) =>
+  adminNav(page).getByRole('link', { name: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s?\\d+\\s?offen)?$`), includeHidden })
+
 export async function openArea(page: Page, name: string) {
-  await adminNav(page).getByRole('button', { name, exact: true }).click()
-  await expect(page.locator('main h2').first()).toBeVisible()
+  await openMenuIfCollapsed(page)
+  await navLink(page, name).click()
+  // Mobil schließt die Schublade nach dem Klick – die Leiste ist dann verborgen, aber weiter maßgeblich.
+  await expect(navLink(page, name, true)).toHaveAttribute('aria-current', 'page')
 }
 
 /** Kein seitliches Scrollen der Seite. */

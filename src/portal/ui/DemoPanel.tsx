@@ -51,7 +51,7 @@ export function DemoPanel({
         onCloseRef.current()
         return
       }
-      // Tab bleibt im Panel (es liegt über allem, auch über offenen Mappen).
+      // Tab bleibt im Panel (es liegt über allem).
       if (event.key === 'Tab' && panelRef.current) {
         const items = Array.from(panelRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), a[href]'))
         if (!items.length) return
@@ -76,12 +76,15 @@ export function DemoPanel({
     return () => {
       document.removeEventListener('keydown', onKey)
       document.removeEventListener('pointerdown', onPointer)
-      // Fokus zurück: in eine offene Mappe (modal), sonst auf den Auslöser in der Kopfleiste.
+      // Fokus zurück auf den Auslöser – liegt er in der geschlossenen mobilen Schublade, auf „Menü“, sonst auf die Überschrift.
       window.requestAnimationFrame(() => {
         if (document.activeElement && document.activeElement !== document.body) return
-        const sheetTitle = document.querySelector<HTMLElement>('[role="dialog"][aria-modal="true"] h2[tabindex="-1"]')
-        if (sheetTitle) sheetTitle.focus({ preventScroll: true })
-        else if (trigger?.isConnected) trigger.focus({ preventScroll: true })
+        const visible = (element: HTMLElement | null | undefined) => Boolean(element?.isConnected && element.offsetParent !== null && getComputedStyle(element).visibility !== 'hidden')
+        const menu = document.querySelector<HTMLElement>('[aria-controls="portal-sidebar"]')
+        const heading = document.querySelector<HTMLElement>('main h1')
+        const target = visible(trigger) ? trigger : visible(menu) ? menu : heading
+        if (target === heading && heading) heading.tabIndex = -1
+        target?.focus({ preventScroll: true })
       })
     }
   }, [trigger])

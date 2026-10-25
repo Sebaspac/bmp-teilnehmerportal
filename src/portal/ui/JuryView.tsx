@@ -3,6 +3,7 @@
 import React, { useState } from 'react'
 import { CheckCircle2, ShieldCheck } from 'lucide-react'
 
+import { PageHeader } from '@/portal/ui/AppShell'
 import { cx } from '@/portal/ui/fields'
 import { StatusBadge } from '@/portal/ui/PhaseTimeline'
 import { JURY_LABEL, JURY_TYPE_HINT, JURY_TYPE_LABEL, assignedOf, isEvaluated } from '@/portal/domain/process'
@@ -39,36 +40,32 @@ export function JuryView({ state, account }: { state: PortalSnapshot; account: A
   const juror = ownJuror ?? jurorById(state, demoJurorId)
 
   return (
-    <main id="inhalt" className={styles.mainWrap}>
-      <section className={cx(styles.band, styles.bandAdmin, styles.onNavy)} aria-labelledby="jury-title">
-        <div className={styles.bandInner}>
-          <div>
-            <h1 className={styles.bandTitle} id="jury-title">
-              {copy.title}
-            </h1>
-            <p className={styles.bandLead}>{juror ? copy.lead(juror.name, JURY_TYPE_LABEL[juror.type], JURY_TYPE_HINT[juror.type]) : copy.noJuror}</p>
-            {!ownJuror && state.jurors.length > 0 && (
-              <label className={styles.juryAsLabel}>
-                <span>{copy.demoAs}</span>
-                <select className={cx(styles.select, styles.selectOnNavy)} value={juror?.id ?? ''} onChange={(event) => setDemoJurorId(event.target.value)}>
-                  {state.jurors.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name} · {JURY_TYPE_LABEL[item.type]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-          </div>
-          <p className={styles.confidentialOnNavy}>
+    <div className={styles.view}>
+      <PageHeader
+        title={copy.title}
+        lead={juror ? copy.lead(juror.name, JURY_TYPE_LABEL[juror.type], JURY_TYPE_HINT[juror.type]) : copy.noJuror}
+        actions={
+          <p className={styles.confidentialNote}>
             <ShieldCheck size={16} aria-hidden="true" />
             {copy.confidential}
           </p>
-        </div>
-      </section>
-
-      <div className={styles.adminMain}>{juror ? <JurorList key={juror.id} state={state} juror={juror} /> : null}</div>
-    </main>
+        }
+      >
+        {!ownJuror && state.jurors.length > 0 && (
+          <label className={styles.juryAs}>
+            <span className={styles.label}>{copy.demoAs}</span>
+            <select className={styles.select} value={juror?.id ?? ''} onChange={(event) => setDemoJurorId(event.target.value)}>
+              {state.jurors.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name} · {JURY_TYPE_LABEL[item.type]}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+      </PageHeader>
+      {juror ? <JurorList key={juror.id} state={state} juror={juror} /> : null}
+    </div>
   )
 }
 
