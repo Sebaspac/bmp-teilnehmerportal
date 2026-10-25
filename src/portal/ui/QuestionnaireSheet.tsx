@@ -27,7 +27,7 @@ import {
   type QuestionField,
   type QuestionSection,
 } from '@/portal/domain/questionnaire'
-import { Sheet, SheetSteps, type SheetHandle } from '@/portal/ui/Sheet'
+import { Page, Steps, type PageHandle } from '@/portal/ui/Page'
 import { ReviewList, formatDateTime, type ReviewGroup } from '@/portal/ui/SubmissionSheet'
 import styles from '@/portal/ui/portal.module.css'
 
@@ -129,7 +129,7 @@ export function QuestionnaireSheet({
   onClose: () => void
 }) {
   const copy = portalContent.questionnaire
-  const sheetRef = useRef<SheetHandle>(null)
+  const sheetRef = useRef<PageHandle>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
   const company = submissionCompany(submission)
   const view = applicantView(submission.process, submission.type, company)
@@ -287,11 +287,12 @@ export function QuestionnaireSheet({
   if (done) {
     const after = applicantView(submission.process, submission.type, company)
     return (
-      <Sheet
+      <Page
         ref={sheetRef}
         title={copy.title}
         subtitle={company}
         onClose={onClose}
+        backLabel={portalContent.sheet.backTo.vorgang}
         footer={
           <>
             <span />
@@ -322,14 +323,14 @@ export function QuestionnaireSheet({
           </p>
           <PhaseTimeline view={after} compact />
         </div>
-      </Sheet>
+      </Page>
     )
   }
 
   /* ── Gesperrt ── */
   if (!editable && view.questionnaireAccess !== 'readonly') {
     return (
-      <Sheet ref={sheetRef} title={copy.title} subtitle={company} onClose={onClose}>
+      <Page ref={sheetRef} title={copy.title} subtitle={company} onClose={onClose}>
         <div className={styles.lockedState}>
           <span className={styles.lockedIcon} aria-hidden="true">
             <Lock size={26} />
@@ -350,31 +351,32 @@ export function QuestionnaireSheet({
             {copy.backToVorgang}
           </button>
         </div>
-      </Sheet>
+      </Page>
     )
   }
 
   /* ── Nur lesen (eingereicht) ── */
   if (!editable) {
     return (
-      <Sheet ref={sheetRef} title={copy.title} subtitle={`${subtitle} · ${copy.readonlySubtitle} ${formatDateTime(submission.process.questionnaireSubmittedAt)}`} onClose={onClose}>
+      <Page ref={sheetRef} title={copy.title} subtitle={`${subtitle} · ${copy.readonlySubtitle} ${formatDateTime(submission.process.questionnaireSubmittedAt)}`} onClose={onClose}>
         <p className={styles.notice} style={{ marginBottom: 20 }}>
           <Lock size={16} aria-hidden="true" />
           {copy.readonlyNote}
         </p>
         <ReviewList groups={summaryGroups(answers)} />
-      </Sheet>
+      </Page>
     )
   }
 
   /* ── Preiswahl: führt zum Fragebogen des gewählten Preises ── */
   if (choosingPrize || !prizes.length) {
     return (
-      <Sheet
+      <Page
         ref={sheetRef}
         title={copy.title}
         subtitle={company}
         onClose={onClose}
+        backLabel={portalContent.sheet.backTo.vorgang}
         footer={
           <>
             <button
@@ -421,18 +423,19 @@ export function QuestionnaireSheet({
             error={errors[PRIZE_KEY]}
           />
         </section>
-      </Sheet>
+      </Page>
     )
   }
 
   /* ── Nur Preise ohne Fragebogen gewählt (vorerst leer) ── */
   if (!activePrize) {
     return (
-      <Sheet
+      <Page
         ref={sheetRef}
         title={copy.title}
         subtitle={`${company} · ${pendingTitles.join(', ')}`}
         onClose={onClose}
+        backLabel={portalContent.sheet.backTo.vorgang}
         footer={
           <>
             <button type="button" className={cx(styles.btn, styles.btnSecondary, styles.footClose)} onClick={() => sheetRef.current?.close()}>
@@ -452,32 +455,31 @@ export function QuestionnaireSheet({
           <h3 className={styles.stepHeading}>{copy.prize.emptyTitle(pendingTitles)}</h3>
           <p className={styles.stepIntro}>{copy.prize.emptyText}</p>
         </div>
-      </Sheet>
+      </Page>
     )
   }
 
   /* ── Bearbeiten ── */
   const section = step < REVIEW_STEP ? QUESTIONNAIRE[step] : null
   return (
-    <Sheet
+    <Page
       ref={sheetRef}
       title={copy.title}
       subtitle={subtitle}
       onClose={onClose}
-      steps={
-        <>
-          <SheetSteps labels={STEP_LABELS} current={step} reachable={reachable} onSelect={jumpTo} />
-          <div className={styles.progressRow}>
-            <span className={styles.progressBar} aria-hidden="true">
-              <span style={{ transform: `scaleX(${answeredCount / REQUIRED_FIELDS.length})` }} />
-            </span>
-            <span className={styles.progressText}>
-              <strong className={styles.progressStep}>{copy.sectionOf(step + 1, STEP_LABELS.length, STEP_LABELS[step])}</strong>
-              {' · '}
-              {copy.progress(answeredCount, REQUIRED_FIELDS.length)}
-            </span>
-          </div>
-        </>
+      backLabel={portalContent.sheet.backTo.vorgang}
+      rail={<Steps labels={STEP_LABELS} current={step} reachable={reachable} onSelect={jumpTo} />}
+      meta={
+        <div className={styles.progressRow}>
+          <span className={styles.progressBar} aria-hidden="true">
+            <span style={{ transform: `scaleX(${answeredCount / REQUIRED_FIELDS.length})` }} />
+          </span>
+          <span className={styles.progressText}>
+            <strong className={styles.progressStep}>{copy.sectionOf(step + 1, STEP_LABELS.length, STEP_LABELS[step])}</strong>
+            {' · '}
+            {copy.progress(answeredCount, REQUIRED_FIELDS.length)}
+          </span>
+        </div>
       }
       footer={
         <>
@@ -598,7 +600,7 @@ export function QuestionnaireSheet({
           </section>
         )}
       </div>
-    </Sheet>
+    </Page>
   )
 }
 

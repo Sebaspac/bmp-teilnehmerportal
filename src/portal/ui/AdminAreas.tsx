@@ -140,7 +140,8 @@ export function DocumentsCell({ process }: { process: ProcessState }) {
 
 /* ── Exporte & Rechte ────────────────────────────────────────────────────── */
 
-export function ExportsRights({ state, viewer, sessionAccountId }: { state: PortalSnapshot; viewer: Role; sessionAccountId: string | null }) {
+/** Exporte als Liste: je Zeile eine Datei mit Inhalt, Anzahl und Download. */
+export function ExportsSection({ state }: { state: PortalSnapshot }) {
   const copy = portalContent.admin.exportsRights
   const [last, setLast] = useState<{ filename: string; count: number } | null>(null)
 
@@ -151,40 +152,35 @@ export function ExportsRights({ state, viewer, sessionAccountId }: { state: Port
   }
 
   return (
-    <div className={styles.exportsRights}>
-      <section aria-labelledby="exports-title">
-        <h2 className={styles.sectionTitle} id="exports-title">
-          {copy.exportsTitle}
-        </h2>
-        <p className={styles.juryBoardLead}>{copy.exportsLead}</p>
-        <ul className={styles.exportGrid}>
-          {EXPORTS.map((item) => {
-            const count = submittedSubmissions(state).filter(item.filter).length
-            return (
-              <li key={item.kind} className={styles.exportCard}>
+    <section aria-label={copy.exportsTitle}>
+      <ul className={styles.exportList}>
+        {EXPORTS.map((item) => {
+          const count = submittedSubmissions(state).filter(item.filter).length
+          return (
+            <li key={item.kind} className={styles.exportRow}>
+              <span className={styles.exportText}>
                 <span className={styles.exportTitle}>{item.title}</span>
                 <span className={styles.hint}>{item.desc}</span>
-                <span className={styles.exportCount}>{copy.rows(count)}</span>
-                <button type="button" className={cx(styles.btn, styles.btnSecondary, styles.btnSmall)} onClick={() => run(item.kind)}>
-                  <Download size={15} aria-hidden="true" />
-                  {copy.download}
-                  <span className={styles.srOnly}>: {item.title}</span>
-                </button>
-              </li>
-            )
-          })}
-        </ul>
-        <p className={styles.hint} aria-live="polite" style={{ marginTop: 12 }}>
-          {last ? copy.done(last.filename, last.count) : copy.note}
-        </p>
-      </section>
-
-      {can(viewer, 'rights') && <RightsSection state={state} sessionAccountId={sessionAccountId} />}
-    </div>
+              </span>
+              <span className={styles.exportCount}>{copy.rows(count)}</span>
+              <button type="button" className={cx(styles.btn, styles.btnSecondary, styles.btnSmall)} onClick={() => run(item.kind)}>
+                <Download size={15} aria-hidden="true" />
+                {copy.download}
+                <span className={styles.srOnly}>: {item.title}</span>
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+      <p className={styles.hint} aria-live="polite" style={{ marginTop: 12 }}>
+        {last ? copy.done(last.filename, last.count) : copy.note}
+      </p>
+    </section>
   )
 }
 
-function RightsSection({ state, sessionAccountId }: { state: PortalSnapshot; sessionAccountId: string | null }) {
+
+export function RightsSection({ state, sessionAccountId }: { state: PortalSnapshot; sessionAccountId: string | null }) {
   const copy = portalContent.admin.exportsRights
   const users = staffAccounts(state)
   const [shown, setShown] = useState<Record<string, boolean>>({})
@@ -225,13 +221,8 @@ function RightsSection({ state, sessionAccountId }: { state: PortalSnapshot; ses
   }
 
   return (
-    <section aria-labelledby="rights-title" className={styles.rightsSection}>
-      <h2 className={styles.sectionTitle} id="rights-title">
-        {copy.rightsTitle}
-      </h2>
-      <p className={styles.juryBoardLead}>{copy.rightsLead}</p>
-
-      <h3 className={styles.miniHeading}>{copy.matrixTitle}</h3>
+    <section aria-label={copy.rightsTitle} className={styles.rightsSection}>
+      <h2 className={styles.sectionHeading}>{copy.matrixTitle}</h2>
       <div className={styles.tableWrap}>
         <table className={cx(styles.table, styles.matrix)}>
           <thead>
@@ -269,7 +260,7 @@ function RightsSection({ state, sessionAccountId }: { state: PortalSnapshot; ses
         </table>
       </div>
 
-      <h3 className={styles.miniHeading}>{copy.usersTitle}</h3>
+      <h2 className={styles.sectionHeading}>{copy.usersTitle}</h2>
       <div className={styles.panel} ref={formRef}>
         <p className={styles.panelTitle}>{copy.createTitle}</p>
         <div className={styles.userForm}>

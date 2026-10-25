@@ -113,6 +113,7 @@ export const portalContent = {
     row: {
       draft: 'Entwurf',
       draftStep: 'Zuletzt bearbeitet',
+      draftHint: 'Noch nicht eingereicht – Ihre Angaben sind gespeichert.',
       continue: 'Weiter bearbeiten',
       discard: 'Verwerfen',
       discardConfirm: 'Entwurf wirklich verwerfen?',
@@ -308,17 +309,21 @@ export const portalContent = {
     roundLabel: 'Rundenstatus',
     roundHint: 'Anzeige für die gesamte Runde – im Prototyp ohne Wirkung auf einzelne Vorgänge.',
     // Menü nach Konzept (Rundenverwaltung bis Exporte & Rechte); kurze Bezeichnungen, der volle Titel steht im Bereich.
+    /** Bereiche der Verwaltung in der Seitenleiste – „section“ gruppiert sie (Arbeit an Vorgängen, Einstellungen). */
     tabs: [
-      { key: 'uebersicht', label: 'Übersicht', title: '' },
-      { key: 'runde', label: 'Runde', title: 'Rundenverwaltung' },
-      { key: 'anmeldungen', label: 'Anmeldungen', title: 'Anmeldungen & Nominierungen' },
-      { key: 'zahlungen', label: 'Zahlungen', title: 'Rechnungen & Zahlungseingänge' },
-      { key: 'fragebogen', label: 'Fragebögen', title: 'Fragebogen-Freigabe & Fristen' },
-      { key: 'jury', label: 'Jury', title: '' },
-      { key: 'ergebnisse', label: 'Ergebnisse', title: 'Ergebnisse & Kommunikation' },
-      { key: 'unterlagen', label: 'Gewinnerunterlagen', title: 'Gewinnerunterlagen & Medienstatus' },
-      { key: 'exporte', label: 'Exporte & Rechte', title: '' },
+      { key: 'uebersicht', label: 'Übersicht', title: 'Übersicht', section: 'arbeit' },
+      { key: 'anmeldungen', label: 'Anmeldungen', title: 'Anmeldungen & Nominierungen', section: 'arbeit' },
+      { key: 'zahlungen', label: 'Zahlungen', title: 'Rechnungen & Zahlungseingänge', section: 'arbeit' },
+      { key: 'fragebogen', label: 'Fragebögen', title: 'Fragebogen-Freigabe & Fristen', section: 'arbeit' },
+      { key: 'jury', label: 'Jury', title: 'Jury', section: 'arbeit' },
+      { key: 'ergebnisse', label: 'Ergebnisse', title: 'Ergebnisse & Kommunikation', section: 'arbeit' },
+      { key: 'unterlagen', label: 'Gewinnerunterlagen', title: 'Gewinnerunterlagen & Medienstatus', section: 'arbeit' },
+      { key: 'runde', label: 'Runde', title: 'Rundenverwaltung', section: 'einstellungen' },
+      { key: 'exporte', label: 'Exporte', title: 'Exporte', section: 'einstellungen' },
+      { key: 'rechte', label: 'Rechte & Benutzer', title: 'Rechte & Benutzer', section: 'einstellungen' },
     ],
+    navSections: { arbeit: 'Vorgänge', einstellungen: 'Verwaltung' },
+    navLabel: 'Verwaltungsbereiche',
     roundStatus: 'Rundenstatus',
     manageRound: 'Runde verwalten',
     listExport: 'Liste exportieren (CSV)',
@@ -694,6 +699,14 @@ export const portalContent = {
     roleChip: { bewerber: 'Bewerberansicht', admin: 'Verwaltungsansicht', jury: 'Juryansicht' },
   },
   nav: {
+    applicantLabel: 'Portalbereiche',
+    juryLabel: 'Juryansicht',
+    jury: 'Zu bewerten',
+    menu: 'Menü',
+    closeMenu: 'Menü schließen',
+    skip: 'Zum Inhalt springen',
+    demoView: 'Demo-Ansicht ohne Anmeldung',
+    roles: { verwaltung: 'Verwaltung', sachbearbeitung: 'Sachbearbeitung', jury: 'Jury', bewerber: 'Bewerber' },
     applicant: [
       { key: 'vorgaenge', label: 'Meine Vorgänge', path: '/portal' },
       { key: 'stammdaten', label: 'Stammdaten', path: '/portal/stammdaten' },
@@ -703,6 +716,8 @@ export const portalContent = {
   sheet: {
     close: 'Schließen',
     back: 'Zurück',
+    /** Rückweg einer Detailseite – nennt das Ziel, damit er nicht mit „Zurück“ im Assistenten verwechselt wird. */
+    backTo: { overview: 'Zurück zur Übersicht', vorgang: 'Zurück zum Vorgang', list: 'Zurück zur Liste', jury: 'Zurück zur Jury' },
     next: 'Weiter',
     draftSaved: 'Entwurf gespeichert',
   },

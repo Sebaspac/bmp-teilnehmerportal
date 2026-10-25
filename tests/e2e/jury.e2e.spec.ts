@@ -1,4 +1,4 @@
-import { ACCOUNTS, PORTAL, adminNav, expect, expectNoHorizontalOverflow, loginAs, logout, openCase, sheet, test, textOf } from '../helpers/portal'
+import { ACCOUNTS, PORTAL, expect, expectNoHorizontalOverflow, loginAs, logout, openArea, openCase, sheet, test, textOf } from '../helpers/portal'
 
 // Jury-Dashboard der Verwaltung und die beiden Jury-Arten (Use Cases 6 und 9 der Testanleitung).
 
@@ -16,7 +16,7 @@ for (const viewport of [
 
     await test.step('Dashboard mit beiden Jury-Arten', async () => {
       await loginAs(page, ACCOUNTS.verwaltung)
-      await adminNav(page).getByRole('button', { name: 'Jury', exact: true }).click()
+      await openArea(page, 'Jury')
       for (const text of ['Jurymitglieder', 'Fragebögen in Jury 1', 'Offene Bewertungen', 'Jury 1 · Ersteinschätzung', 'Jury 2 · Punktevergabe', 'Jurymitglied A', 'Bearbeitet']) {
         await expect(main).toContainText(text)
       }

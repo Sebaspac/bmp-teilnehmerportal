@@ -20,7 +20,7 @@ import { portalContent } from '@/portal/content/portalContent'
 import { runCommand } from '@/portal/data/portalClient'
 import { submissionCompany } from '@/portal/domain/selectors'
 import { DOC_KEYS, type Account, type DocKey, type Submission } from '@/portal/domain/types'
-import { Sheet, type SheetHandle } from '@/portal/ui/Sheet'
+import { Page, type PageHandle } from '@/portal/ui/Page'
 import { ReviewList, formatDate, formatDateTime, reviewGroups } from '@/portal/ui/SubmissionSheet'
 import styles from '@/portal/ui/portal.module.css'
 
@@ -47,7 +47,7 @@ export function VorgangSheet({
   initialSection?: string | null
 }) {
   const copy = portalContent.vorgang
-  const sheetRef = useRef<SheetHandle>(null)
+  const sheetRef = useRef<PageHandle>(null)
   const company = submissionCompany(submission)
   const view = applicantView(submission.process, submission.type, company)
   const typeLabel = submission.type === 'fremdvorschlag' ? portalContent.submission.type.nomination.title : portalContent.submission.type.self.title
@@ -94,7 +94,7 @@ export function VorgangSheet({
   }
 
   return (
-    <Sheet
+    <Page
       ref={sheetRef}
       title={company}
       subtitle={
@@ -103,20 +103,21 @@ export function VorgangSheet({
         </>
       }
       onClose={onClose}
-      steps={
-        <div className={styles.sheetMeta}>
-          <StatusBadge label={view.status.label} tone={view.status.tone} onNavy />
-          <span className={styles.sheetMetaNote}>{copy.demoData}</span>
-        </div>
+      backLabel={portalContent.sheet.backTo.overview}
+      meta={
+        <>
+          <StatusBadge label={view.status.label} tone={view.status.tone} />
+          <span className={styles.pageMetaNote}>{copy.demoData}</span>
+        </>
       }
     >
       <section aria-labelledby="vorgang-phase-heading" className={styles.vorgangTop}>
         <PhaseTimeline view={view} />
 
         <div className={styles.phaseCard}>
-          <h3 className={styles.phaseCardTitle} id="vorgang-phase-heading">
+          <h2 className={styles.phaseCardTitle} id="vorgang-phase-heading">
             {view.title}
-          </h3>
+          </h2>
           <p className={styles.phaseCardText}>{view.description}</p>
           {view.demoNote && (
             <p className={styles.noticeWarn}>
@@ -160,7 +161,7 @@ export function VorgangSheet({
           <DocumentsBlock submission={submission} />
         )}
       </div>
-    </Sheet>
+    </Page>
   )
 }
 
@@ -207,9 +208,9 @@ function Block({
           {locked ? <Lock size={16} /> : icon}
         </span>
         <div className={styles.blockHeadText}>
-          <h4 className={styles.blockTitle} id={`vorgang-${id}-title`}>
+          <h2 className={styles.blockTitle} id={`vorgang-${id}-title`}>
             {title}
-          </h4>
+          </h2>
           <p className={styles.blockSummary}>{locked ? lockedText : summary}</p>
         </div>
         {status && !locked && <span className={styles.blockStatus}>{status}</span>}
@@ -406,9 +407,9 @@ function ResultBlock({
           {invited ? <Mail size={18} /> : reached ? <FileCheck2 size={18} /> : <Lock size={16} />}
         </span>
         <div className={styles.blockHeadText}>
-          <h4 className={styles.blockTitle} id="vorgang-einladung-title">
+          <h2 className={styles.blockTitle} id="vorgang-einladung-title">
             {copy.blocks.result}
-          </h4>
+          </h2>
           <p className={styles.blockSummary}>
             {!reached
               ? copy.result.locked
@@ -480,9 +481,9 @@ function DocumentsBlock({ submission }: { submission: Submission }) {
           <FolderUp size={18} />
         </span>
         <div className={styles.blockHeadText}>
-          <h4 className={styles.blockTitle} id="vorgang-unterlagen-title">
+          <h2 className={styles.blockTitle} id="vorgang-unterlagen-title">
             {copy.title}
-          </h4>
+          </h2>
           <p className={styles.blockSummary}>{copy.summary(progress.approved, progress.total, progress.open)}</p>
         </div>
         <span className={styles.blockStatus}>
