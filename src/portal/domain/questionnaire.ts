@@ -1,56 +1,23 @@
 /**
- * Bewerbungsfragebogen – Fragen aus dem BMP-Fragebogen 2025 (Vorlage der Geschäftsstelle), ohne Antworten.
+ * Fragebögen der drei Preise: Vorlagen, Prüfregeln je Antwortformat und Regeln für die Bearbeitung durch die Verwaltung.
  *
- * Wo der bisherige Fragebogen freie Angaben zuließ (z. B. „Umsatzvolumen“, „Anzahl der Mitarbeiter“, „Branche“), legt
- * dieses Schema ein festes Antwortformat fest – Einheit, Stichtag, Auswahl oder Länge –, damit alle Bewerbungen nach
- * denselben Maßstäben vergleichbar sind. Die Formate stehen als Hinweis direkt am Feld.
+ * Gespeichert sind die Fragebögen als `QuestionnaireDefinition` im Bestand (`PortalData.questionnaires`) – die Verwaltung
+ * bearbeitet und schaltet sie frei. Diese Datei liefert die Ausgangsfassungen (Seed) und alles, was für jede Fassung gilt:
+ *
+ * - Bayerischer Mittelstandspreis: Fragen aus dem BMP-Fragebogen 2025 (Vorlage der Geschäftsstelle). Wo der bisherige
+ *   Fragebogen freie Angaben zuließ (z. B. „Umsatzvolumen“, „Anzahl der Mitarbeiter“, „Branche“), legt das Schema ein
+ *   festes Antwortformat fest – Einheit, Stichtag, Auswahl oder Länge –, damit alle Bewerbungen vergleichbar sind.
+ * - Roland-Berger-Zukunftspreis und Bavarian Future Award: Platzhalter, bis die Geschäftsstelle die Fragen festlegt.
  */
 
 import { isValidSubmissionEmail } from '@/shared/formSubmission'
 import { looksLikeUrl } from '@/portal/domain/registration'
 
-import type { QuestionnaireAnswers } from '@/portal/domain/types'
+import type { FieldType, PortalData, PrizeId, QuestionField, QuestionSection, QuestionnaireAnswers, QuestionnaireDefinition } from '@/portal/domain/types'
 
 /** Wettbewerbsrunde des Prototyps. Umsatzjahre wie 2025 (Runde 2025 → 2021–2023): Runde − 4 bis Runde − 2. */
 export const ROUND_YEAR = 2027
 const REVENUE_YEARS = [ROUND_YEAR - 4, ROUND_YEAR - 3, ROUND_YEAR - 2]
-
-export type FieldType = 'text' | 'textarea' | 'select' | 'integer' | 'year' | 'zip' | 'email' | 'tel' | 'url' | 'money'
-
-export type QuestionField = {
-  id: string
-  label: string
-  type: FieldType
-  required?: boolean
-  /** Verbindliches Antwortformat, am Feld angezeigt. */
-  format?: string
-  options?: ReadonlyArray<{ value: string; label: string }>
-  maxLength?: number
-  placeholder?: string
-  /** Breite im Raster: ganze Zeile oder halbe Zeile. */
-  span?: 'full' | 'half'
-  /** Zwischenüberschrift vor diesem Feld. */
-  group?: string
-  /** Gemeinsame Formatvorgabe unter der Zwischenüberschrift (gilt für die ganze Gruppe). */
-  groupNote?: string
-}
-
-export type Criterion = {
-  number: number
-  title: string
-  lead: string
-  description: string
-  guidance: string[]
-}
-
-export type QuestionSection = {
-  id: string
-  step: string
-  heading: string
-  intro?: string
-  criterion?: Criterion
-  fields: QuestionField[]
-}
 
 const GUIDANCE_NOTE =
   'Auf folgende Fragen können Sie in Ihrer Antwort eingehen. Die Fragen dienen zur Orientierung – Sie müssen nicht jede Frage beantworten. Bitte geben Sie, wenn möglich, auch Beispiele an, um Ihre Erfolge anschaulich darzustellen.'
@@ -104,7 +71,8 @@ const referenceFields = (index: number): QuestionField[] => [
   { id: `ref${index}_relation`, label: `Referenz ${index}: Art der Beziehung`, type: 'select', options: RELATIONS, span: 'half' },
 ]
 
-export const QUESTIONNAIRE: QuestionSection[] = [
+/** Ausgangsfassung des Fragebogens zum Bayerischen Mittelstandspreis. */
+export const BMP_QUESTIONNAIRE: QuestionSection[] = [
   {
     id: 'kontakt',
     step: 'Kontakt',
@@ -263,57 +231,187 @@ export const QUESTIONNAIRE: QuestionSection[] = [
   },
 ]
 
-export const ALL_FIELDS = QUESTIONNAIRE.flatMap((section) => section.fields)
-export const REQUIRED_FIELDS = ALL_FIELDS.filter((field) => field.required)
+/** Platzhalter-Fragebogen zum Roland-Berger-Zukunftspreis – die Fragen legt die Geschäftsstelle fest. */
+const ROLAND_BERGER_QUESTIONNAIRE: QuestionSection[] = [
+  {
+    id: 'vision',
+    step: 'Vision',
+    heading: 'Vision und Zukunftsbild',
+    intro: 'Platzhalter – die Fragen zum Roland-Berger-Zukunftspreis legt die Geschäftsstelle fest.',
+    fields: [
+      { id: 'rb_vision', label: 'Welche Vision verfolgt Ihr Unternehmen für die nächsten zehn Jahre?', type: 'textarea', required: true, maxLength: GENERAL_LIMIT, format: `Freitext, höchstens ${GENERAL_LIMIT.toLocaleString('de-DE')} Zeichen.` },
+      {
+        id: 'rb_horizon',
+        label: 'Planungshorizont Ihrer Strategie',
+        type: 'select',
+        required: true,
+        span: 'half',
+        options: ['bis 3 Jahre', '3 bis 5 Jahre', '5 bis 10 Jahre', 'mehr als 10 Jahre'].map((value) => ({ value, label: value })),
+      },
+    ],
+  },
+  {
+    id: 'umsetzung',
+    step: 'Umsetzung',
+    heading: 'Umsetzung im Unternehmen',
+    fields: [
+      { id: 'rb_projects', label: 'Mit welchen Projekten setzen Sie Ihre Vision heute um?', type: 'textarea', required: true, maxLength: GENERAL_LIMIT, format: `Freitext, höchstens ${GENERAL_LIMIT.toLocaleString('de-DE')} Zeichen.` },
+      { id: 'rb_invest', label: 'Investitionen in Zukunftsprojekte im letzten Geschäftsjahr', type: 'money', required: true, span: 'half', format: 'In Mio. €, eine Nachkommastelle.' },
+    ],
+  },
+]
+
+/** Platzhalter-Fragebogen zum Bavarian Future Award (Unternehmensnachfolge) – die Fragen legt die Geschäftsstelle fest. */
+const FUTURE_AWARD_QUESTIONNAIRE: QuestionSection[] = [
+  {
+    id: 'nachfolge',
+    step: 'Nachfolge',
+    heading: 'Ihre Nachfolgesituation',
+    intro: 'Platzhalter – die Fragen zum Bavarian Future Award legt die Geschäftsstelle gemeinsam mit der HAM fest.',
+    fields: [
+      {
+        id: 'fa_kind',
+        label: 'Art der Nachfolge',
+        type: 'select',
+        required: true,
+        span: 'half',
+        options: ['Familienintern', 'Management-Buy-out', 'Management-Buy-in', 'Verkauf', 'Stiftung', 'Noch offen'].map((value) => ({ value, label: value })),
+      },
+      { id: 'fa_year', label: 'Jahr der Übergabe', type: 'year', required: true, span: 'half', format: 'Jahr mit vier Ziffern (JJJJ).' },
+      { id: 'fa_story', label: 'Wie haben Sie die Nachfolge vorbereitet und gestaltet?', type: 'textarea', required: true, maxLength: CRITERION_LIMIT, format: `Freitext, höchstens ${CRITERION_LIMIT.toLocaleString('de-DE')} Zeichen.` },
+    ],
+  },
+]
+
+/** Ausgangsfassungen je Preis (Seed). Die gültige Fassung steht im Bestand und kann von der Verwaltung geändert sein. */
+export const SEED_QUESTIONNAIRES: Record<PrizeId, QuestionSection[]> = {
+  bmp: BMP_QUESTIONNAIRE,
+  roland_berger: ROLAND_BERGER_QUESTIONNAIRE,
+  future_award: FUTURE_AWARD_QUESTIONNAIRE,
+}
+
 export const CONFIRM_KEY = '__confirmed'
 
-/* ── Preiswahl vor dem Fragebogen ───────────────────────────────────────── */
+/* ── Preise ─────────────────────────────────────────────────────────────── */
 
-/**
- * Für welche Preise sich das Unternehmen bewirbt – eine oder mehrere. Vorerst hat nur der Bayerische Mittelstandspreis
- * einen Fragebogen; für die übrigen folgt er.
- */
-export type PrizeId = 'bmp' | 'roland_berger' | 'future_award'
-export type Prize = { id: PrizeId; title: string; short: string; desc: string; hasQuestionnaire: boolean }
+export type Prize = { id: PrizeId; title: string; short: string; desc: string }
 
-/** Ausgewählte Preise, kommagetrennt in den Antworten gespeichert (z. B. „bmp,roland_berger“). */
-export const PRIZE_KEY = '__prize'
+/** Für welche Preise sich ein Unternehmen bewirbt – einen oder mehrere; je Preis gibt es einen eigenen Fragebogen. */
 export const PRIZES: Prize[] = [
   {
     id: 'bmp',
     title: 'Bayerischer Mittelstandspreis',
     short: 'BMP',
     desc: 'Goldene Bavaria – die höchste Auszeichnung des Bayerischen Mittelstandspreises.',
-    hasQuestionnaire: true,
   },
   {
     id: 'roland_berger',
     title: 'Roland-Berger-Zukunftspreis',
     short: 'Roland Berger',
     desc: 'Für visionäre Unternehmensführung und zukunftsorientiertes Denken.',
-    hasQuestionnaire: false,
   },
   {
     id: 'future_award',
     title: 'Bavarian Future Award',
     short: 'Future Award',
     desc: 'Der Sonderpreis der Hochschule für angewandtes Management (HAM) für vorbildlich gestaltete Unternehmensnachfolge.',
-    hasQuestionnaire: false,
   },
 ]
 
-export const prizesOf = (answers: QuestionnaireAnswers) => {
-  const ids = (answers[PRIZE_KEY] ?? '').split(',')
-  return PRIZES.filter((prize) => ids.includes(prize.id))
+export const PRIZE_IDS: PrizeId[] = PRIZES.map((prize) => prize.id)
+
+export const prizeById = (id: PrizeId) => PRIZES.find((prize) => prize.id === id)!
+
+/** Gewählte Preise in fester Reihenfolge, unabhängig von der Klickfolge. */
+export const sortPrizes = (ids: readonly PrizeId[]) => PRIZE_IDS.filter((id) => ids.includes(id))
+
+export const prizeTitles = (ids: readonly PrizeId[], key: 'title' | 'short' = 'title') =>
+  sortPrizes(ids)
+    .map((id) => prizeById(id)[key])
+    .join(', ')
+
+/* ── Fragebögen im Bestand ──────────────────────────────────────────────── */
+
+export const definitionOf = (data: Pick<PortalData, 'questionnaires'> | null, prize: PrizeId) => data?.questionnaires.find((item) => item.prize === prize) ?? null
+
+/** Preise, deren Fragebogen Bewerber ausfüllen können. */
+export const releasedPrizes = (data: Pick<PortalData, 'questionnaires'> | null): PrizeId[] =>
+  sortPrizes((data?.questionnaires ?? []).filter((item) => item.status === 'freigeschaltet').map((item) => item.prize))
+
+export const allFields = (sections: readonly QuestionSection[]) => sections.flatMap((section) => section.fields)
+export const requiredFields = (sections: readonly QuestionSection[]) => allFields(sections).filter((field) => field.required)
+
+/** Ausgangsbestand: Mittelstandspreis und Zukunftspreis freigeschaltet, Future Award noch im Entwurf. */
+export function seedDefinitions(at: string): QuestionnaireDefinition[] {
+  const released: PrizeId[] = ['bmp', 'roland_berger']
+  return PRIZE_IDS.map((prize) => ({
+    prize,
+    status: released.includes(prize) ? 'freigeschaltet' : 'entwurf',
+    sections: SEED_QUESTIONNAIRES[prize],
+    updatedAt: at,
+    ...(released.includes(prize) ? { releasedAt: at } : {}),
+  }))
 }
 
-/** In fester Reihenfolge speichern, unabhängig von der Klickfolge. */
-export const encodePrizes = (ids: PrizeId[]) =>
-  PRIZES.filter((prize) => ids.includes(prize.id))
-    .map((prize) => prize.id)
-    .join(',')
+/* ── Bearbeitung durch die Verwaltung ───────────────────────────────────── */
 
-export const prizeTitles = (prizes: Prize[], key: 'title' | 'short' = 'title') => prizes.map((prize) => prize[key]).join(', ')
+export const FIELD_TYPE_LABEL: Record<FieldType, string> = {
+  text: 'Kurzer Text',
+  textarea: 'Langer Text',
+  select: 'Auswahl',
+  integer: 'Ganze Zahl',
+  year: 'Jahr',
+  zip: 'Postleitzahl',
+  email: 'E-Mail-Adresse',
+  tel: 'Telefonnummer',
+  url: 'Webadresse',
+  money: 'Betrag in Mio. €',
+}
+
+export const FIELD_TYPES = Object.keys(FIELD_TYPE_LABEL) as FieldType[]
+
+/**
+ * Ist der Fragebogen vollständig genug zum Freischalten bzw. Speichern? Liefert den ersten Mangel als Satz, sonst
+ * `null`. Geprüft werden Pflichttexte, eindeutige IDs und Auswahlmöglichkeiten.
+ */
+export function definitionProblem(sections: readonly QuestionSection[]): string | null {
+  if (sections.length === 0) return 'Der Fragebogen braucht mindestens einen Abschnitt.'
+  const sectionIds = new Set<string>()
+  const fieldIds = new Set<string>()
+  for (const [index, section] of sections.entries()) {
+    const name = `Abschnitt ${index + 1}`
+    if (!section.id || sectionIds.has(section.id)) return `${name}: Die interne Kennung ist doppelt.`
+    sectionIds.add(section.id)
+    if (!section.heading.trim()) return `${name}: Bitte geben Sie eine Überschrift ein.`
+    if (!section.step.trim()) return `${name}: Bitte geben Sie einen Kurznamen für die Schrittleiste ein.`
+    if (section.fields.length === 0) return `${name}: Der Abschnitt braucht mindestens eine Frage.`
+    for (const [fieldIndex, field] of section.fields.entries()) {
+      const fieldName = `${name}, Frage ${fieldIndex + 1}`
+      if (!field.id || fieldIds.has(field.id)) return `${fieldName}: Die interne Kennung ist doppelt.`
+      fieldIds.add(field.id)
+      if (!field.label.trim()) return `${fieldName}: Bitte geben Sie den Fragetext ein.`
+      if (!FIELD_TYPES.includes(field.type)) return `${fieldName}: Unbekanntes Antwortformat.`
+      if (field.type === 'select' && (field.options ?? []).filter((option) => option.label.trim()).length < 2)
+        return `${fieldName}: Eine Auswahl braucht mindestens zwei Möglichkeiten.`
+      if (field.maxLength !== undefined && !(Number.isInteger(field.maxLength) && field.maxLength > 0)) return `${fieldName}: Die Höchstlänge muss eine positive ganze Zahl sein.`
+    }
+  }
+  return null
+}
+
+/**
+ * Aufbau eines Fragebogens: Abschnitte, Felder, Antwortformate, Pflichtangaben und Auswahlwerte. Nach dem Freischalten
+ * muss er gleich bleiben – Texte (Überschriften, Fragen, Hinweise, Bezeichnungen der Auswahl) dürfen sich ändern.
+ */
+const structureOf = (sections: readonly QuestionSection[]) =>
+  JSON.stringify(
+    sections.map((section) => [
+      section.id,
+      section.fields.map((field) => [field.id, field.type, Boolean(field.required), field.maxLength ?? null, (field.options ?? []).map((option) => option.value)]),
+    ]),
+  )
+
+export const sameStructure = (a: readonly QuestionSection[], b: readonly QuestionSection[]) => structureOf(a) === structureOf(b)
 
 /* ── Prüfung je Antwortformat ───────────────────────────────────────────── */
 
@@ -392,12 +490,36 @@ export const isFilled = (answers: QuestionnaireAnswers, field: QuestionField) =>
 
 const DEMO_TEXT = 'Beispieltext (Demo): Hier steht die Antwort des Unternehmens.'
 
+/** Beispielwert je Antwortformat – für Felder ohne eigenen Demo-Wert (z. B. von der Verwaltung ergänzte Fragen). */
+function demoValue(field: QuestionField): string {
+  switch (field.type) {
+    case 'select':
+      return field.options?.[0]?.value ?? ''
+    case 'integer':
+      return '10'
+    case 'year':
+      return '2020'
+    case 'zip':
+      return '80331'
+    case 'email':
+      return 'info@beispiel.example'
+    case 'tel':
+      return '+49 89 1234560'
+    case 'url':
+      return 'www.beispiel.example'
+    case 'money':
+      return '1,5'
+    default:
+      return field.type === 'textarea' ? DEMO_TEXT : 'Beispielangabe (Demo)'
+  }
+}
+
 /**
- * Ausgefüllter Beispielfragebogen für Demo-Szenarien. `upToSection` füllt nur die ersten Abschnitte (in Bearbeitung).
- * Zahlen und Texte sind erfunden und keine Angaben eines echten Unternehmens.
+ * Ausgefüllter Beispielfragebogen eines Preises für Demo-Szenarien. `upToSection` füllt nur die ersten Abschnitte (in
+ * Bearbeitung). Zahlen und Texte sind erfunden und keine Angaben eines echten Unternehmens.
  */
-export function demoAnswers(company: string, city: string, upToSection = QUESTIONNAIRE.length, prizes: PrizeId[] = ['bmp']): QuestionnaireAnswers {
-  const values: QuestionnaireAnswers = {
+export function demoAnswers(sections: readonly QuestionSection[], company: string, city: string, upToSection = sections.length): QuestionnaireAnswers {
+  const known: QuestionnaireAnswers = {
     company_name: company,
     industry: 'M',
     legal_form: 'GmbH',
@@ -421,14 +543,12 @@ export function demoAnswers(company: string, city: string, upToSection = QUESTIO
     ...Object.fromEntries(REVENUE_YEARS.map((year, index) => [`revenue_${year}`, ['2,0', '2,5', '3,0'][index]])),
     ref1_org: 'Beispielkunde AG (Demo)',
     ref1_relation: 'Kunde',
-    q1: DEMO_TEXT,
-    q2: DEMO_TEXT,
-    q3: DEMO_TEXT,
-    k1: DEMO_TEXT,
-    k2: DEMO_TEXT,
-    k3: DEMO_TEXT,
-    k4: DEMO_TEXT,
   }
-  const allowed = new Set(QUESTIONNAIRE.slice(0, upToSection).flatMap((section) => section.fields.map((field) => field.id)))
-  return { [PRIZE_KEY]: encodePrizes(prizes), ...Object.fromEntries(Object.entries(values).filter(([key]) => allowed.has(key))) }
+  const answers: QuestionnaireAnswers = {}
+  for (const field of allFields(sections.slice(0, upToSection))) {
+    // Freiwillige Referenzen 2 und 3 bleiben leer.
+    if (!field.required && !(field.id in known)) continue
+    answers[field.id] = known[field.id] ?? demoValue(field)
+  }
+  return answers
 }

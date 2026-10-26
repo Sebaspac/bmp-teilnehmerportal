@@ -5,15 +5,17 @@ import { RotateCcw, SlidersHorizontal, X } from 'lucide-react'
 
 import { cx } from '@/portal/ui/fields'
 import { SCENARIOS, newedgeSubmission, scenarioOf, type ScenarioId } from '@/portal/domain/seed'
+import { STAGES, hasFeature, stageLabel, type Stage } from '@/portal/domain/release'
 import { portalContent } from '@/portal/content/portalContent'
+import { configuredStage, portalDemo, useStage } from '@/portal/data/portalClient'
 import type { PortalSnapshot } from '@/portal/domain/types'
 import styles from '@/portal/ui/portal.module.css'
 
 export type Perspective = 'bewerber' | 'admin' | 'jury'
 
 /**
- * Demo-Steuerung: Perspektivwechsel und NEWEDGE-Szenarien. Klar gekennzeichnet als Vorführwerkzeug – keine Funktion
- * des späteren Portals.
+ * Demo-Steuerung: Ausbaustufe, Perspektivwechsel und NEWEDGE-Szenarien. Klar gekennzeichnet als Vorführwerkzeug – keine
+ * Funktion des späteren Portals (dort ist die Ausbaustufe eine Einstellung des Deployments).
  */
 export function DemoPanel({
   state,
@@ -35,8 +37,14 @@ export function DemoPanel({
 }) {
   const copy = portalContent.demo
   const panelRef = useRef<HTMLDivElement>(null)
+  const stage = useStage()
   const newedge = newedgeSubmission(state)
   const active = newedge ? scenarioOf(newedge.process) : null
+  const setStage = (next: Stage) => {
+    portalDemo?.setStage(next === configuredStage ? null : next)
+    // Gibt es die aktuelle Perspektive in der neuen Stufe nicht (Jury), zurück in die Verwaltung.
+    if (perspective === 'jury' && !hasFeature(next, 'jury')) onPerspective('admin')
+  }
 
   // Auslöser beim ersten Rendern merken; der Effekt läuft nur einmal (onClose über Ref, weil die Funktion nicht stabil ist).
   const [trigger] = useState(() => (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement ? document.activeElement : null))
@@ -103,6 +111,32 @@ export function DemoPanel({
       <p className={styles.demoNote}>{copy.note}</p>
 
       <div className={styles.demoSection}>
+        <span className={styles.demoLabel} id="demo-stage">
+          {copy.stage}
+        </span>
+        <p className={styles.demoHint}>{copy.stageHint}</p>
+        <div className={cx(styles.demoSegments, styles.demoStages)} role="group" aria-labelledby="demo-stage">
+          {STAGES.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={cx(styles.demoSegment, stage === item.id && styles.demoSegmentActive)}
+              aria-pressed={stage === item.id}
+              aria-label={item.label}
+              title={item.includes}
+              onClick={() => setStage(item.id)}
+            >
+              {item.short}
+            </button>
+          ))}
+        </div>
+        <p className={styles.demoHint}>
+          {stageLabel(stage)} · {STAGES.find((item) => item.id === stage)!.includes}
+          {stage !== configuredStage ? ` · ${copy.stageDefault(stageLabel(configuredStage))}` : ''}
+        </p>
+      </div>
+
+      <div className={styles.demoSection}>
         <span className={styles.demoLabel} id="demo-perspective">
           {copy.perspective}
         </span>
@@ -113,7 +147,7 @@ export function DemoPanel({
           </button>
         )}
         <div className={styles.demoSegments} role="group" aria-labelledby="demo-perspective">
-          {(['bewerber', 'admin', 'jury'] as const).map((item) => (
+          {(['bewerber', 'admin', 'jury'] as const).filter((item) => item !== 'jury' || hasFeature(stage, 'jury')).map((item) => (
             <button
               key={item}
               type="button"
@@ -134,7 +168,7 @@ export function DemoPanel({
         <p className={styles.demoHint}>{copy.scenarioHint}</p>
         {newedge ? (
           <ol className={styles.demoScenarios} aria-labelledby="demo-scenario">
-            {SCENARIOS.map((scenario) => (
+            {SCENARIOS.filter((scenario) => hasFeature(stage, scenario.feature)).map((scenario) => (
               <li key={scenario.id}>
                 <button
                   type="button"

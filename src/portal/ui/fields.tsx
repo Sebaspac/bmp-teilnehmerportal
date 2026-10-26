@@ -163,6 +163,7 @@ export function SelectField({
   placeholder = portalContent.labels.choose,
   id,
   onBlur,
+  disabled,
 }: {
   label: React.ReactNode
   value: string
@@ -175,6 +176,7 @@ export function SelectField({
   placeholder?: string
   id?: string
   onBlur?: () => void
+  disabled?: boolean
 }) {
   const autoId = useId()
   const fieldId = id || autoId
@@ -187,6 +189,7 @@ export function SelectField({
         value={value}
         onChange={(event) => onValueChange(event.target.value)}
         onBlur={onBlur}
+        disabled={disabled}
         aria-invalid={error ? true : undefined}
         aria-required={!optional ? true : undefined}
         aria-describedby={describedBy(fieldId, hint, error)}
@@ -218,6 +221,7 @@ export function TextAreaField({
   id,
   rows = 5,
   onBlur,
+  disabled,
 }: {
   label: React.ReactNode
   value: string
@@ -230,6 +234,7 @@ export function TextAreaField({
   id?: string
   rows?: number
   onBlur?: () => void
+  disabled?: boolean
 }) {
   const autoId = useId()
   const fieldId = id || autoId
@@ -256,6 +261,7 @@ export function TextAreaField({
         value={value}
         onChange={(event) => onValueChange(event.target.value)}
         onBlur={onBlur}
+        disabled={disabled}
         aria-invalid={error ? true : undefined}
         aria-required={!optional ? true : undefined}
         aria-describedby={describedBy(fieldId, hint, error, `${fieldId}-count`)}

@@ -8,7 +8,7 @@
  */
 
 import type { Actor } from '@/portal/domain/permissions'
-import type { Account, PortalData, ProcessState, Submission } from '@/portal/domain/types'
+import type { Account, PortalData, ProcessState, QuestionnaireDefinition, Submission } from '@/portal/domain/types'
 
 /** Zugangsdaten verlassen nie den Server. Ausnahme Prototyp: Testpasswörter für die Verwaltung (Rechte & Benutzer). */
 const withoutSecrets = (account: Account, keepDemoPassword: boolean): Account => {
@@ -26,6 +26,15 @@ const applicantProcess = (process: ProcessState): ProcessState => ({
   result: process.result === 'vorbereitet' ? 'ausstehend' : process.result,
 })
 
+/** Fragebögen im Entwurf kennt nur die Verwaltung; alle anderen sehen nur, dass es sie gibt (für „Fragebogen folgt“). */
+const releasedOnly = (definitions: QuestionnaireDefinition[]) =>
+  definitions.map((definition) => (definition.status === 'freigeschaltet' ? definition : { ...definition, sections: [] }))
+
+/** Jury: nur eingereichte Fragebögen der gewählten Preise – keine Entwürfe abgewählter Preise. */
+const submittedApplication = (process: ProcessState): Pick<ProcessState, 'questionnaires'> => ({
+  questionnaires: Object.fromEntries(process.prizes.filter((prize) => process.questionnaires[prize]?.status === 'eingereicht').map((prize) => [prize, process.questionnaires[prize]])),
+})
+
 export function visibleTo(data: PortalData, actor: Actor): PortalData {
   const base = { round: data.round, roundSettings: data.roundSettings }
 
@@ -36,13 +45,15 @@ export function visibleTo(data: PortalData, actor: Actor): PortalData {
         ...base,
         submissions: data.submissions,
         jurors: data.jurors,
+        questionnaires: data.questionnaires,
         accounts: data.accounts.map((account) => withoutSecrets(account, actor.role === 'verwaltung')),
       }
 
     case 'jury': {
-      // Ein Jurymitglied sieht nur die ihm zugewiesenen Fragebögen und nur die eigene Bewertung.
+      // Ein Jurymitglied sieht nur die ihm zugewiesenen Bewerbungen (Fragebögen und Unterlagen) und nur die eigene Bewertung.
       const own = (process: ProcessState): ProcessState => ({
         ...applicantProcess(process),
+        ...submittedApplication(process),
         assigned: { jury1: [], jury2: [], [actor.role]: [actor.jurorId] } as ProcessState['assigned'],
         jury1: actor.role === 'jury1' && process.jury1[actor.jurorId] ? { [actor.jurorId]: process.jury1[actor.jurorId] } : {},
         jury2: actor.role === 'jury2' && process.jury2[actor.jurorId] !== undefined ? { [actor.jurorId]: process.jury2[actor.jurorId] } : {},
@@ -56,23 +67,25 @@ export function visibleTo(data: PortalData, actor: Actor): PortalData {
         ...base,
         submissions,
         jurors: data.jurors.filter((juror) => juror.id === actor.jurorId),
+        questionnaires: releasedOnly(data.questionnaires),
         accounts: data.accounts.filter((account) => account.id === actor.accountId).map((account) => withoutSecrets(account, false)),
       }
     }
 
     case 'applicant':
       // Bewerber sehen nur eigene Vorgänge, ohne interne Jury- und Verlaufsdaten. Offene Entscheidung: Bei einer
-      // Fremdnominierung sieht die vorschlagende Person im Prototyp noch die Fragebogenantworten (Demo-Übergabe).
+      // Fremdnominierung sieht die vorschlagende Person im Prototyp noch Fragebögen und Unterlagen (Demo-Übergabe).
       return {
         ...base,
         submissions: data.submissions
           .filter((submission) => submission.accountId === actor.accountId)
           .map((submission) => ({ ...submission, process: applicantProcess(submission.process) })),
         jurors: [],
+        questionnaires: releasedOnly(data.questionnaires),
         accounts: data.accounts.filter((account) => account.id === actor.accountId).map((account) => withoutSecrets(account, false)),
       }
 
     case 'anonymous':
-      return { ...base, submissions: [], jurors: [], accounts: [] }
+      return { ...base, submissions: [], jurors: [], questionnaires: [], accounts: [] }
   }
 }

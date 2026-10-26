@@ -35,7 +35,9 @@ Erfolg: Ein Fremdnominierung gelingt mit wenigen öffentlich bekannten Angaben u
 - **Verbindliches Vier-Phasen-Modell (Bewerbersicht):** 01 Anmeldung läuft → 02 Fragebogen wird freigeschaltet → 03 Auditsitzung der Jury → 04 Einladung zur Gala. Phase (A), Detailstatus (B) und nächste Handlung (C) werden getrennt dargestellt. Rechnung & Zahlung gehören zu Phase 02, Jury 1/2 sind interne Stufen von Phase 03.
 - Die alte Darstellung der Website („Online-Einreichung → Formale Vorprüfung → Audit & Jury-Sitzung → Gala-Preisverleihung“) gilt für das Portal nicht.
 - Teilnahmekriterien (Website): Standort Bayern, KMU-Größe, mindestens drei Geschäftsjahre am Markt, Privatwirtschaft.
-- **Zahlung (Entscheidung 24.10.2026):** Die Teilnahme wird kostenpflichtig; das „kostenfrei“ der Website ist für das Portal überholt. Es gibt keine Bezahlabwicklung – die Verwaltung setzt einen Haken „Zahlung eingegangen“, danach wird der Fragebogen freigeschaltet.
+- **Zahlung (Entscheidung 24.10.2026):** Die Teilnahme wird kostenpflichtig; das „kostenfrei“ der Website ist für das Portal überholt. Es gibt keine Bezahlabwicklung – die Verwaltung setzt einen Haken „Zahlung eingegangen“, danach wird die Bewerbung freigeschaltet.
+- **Bewerbung (Entscheidung 26.10.2026):** je gewähltem Preis ein eigener Fragebogen (die Verwaltung bearbeitet und schaltet jeden Fragebogen frei) plus sechs feste Unterlagen je Unternehmen in allen Büroformaten; die Jury sieht alle Unterlagen.
+- **Ausbaustufen (Entscheidung 26.10.2026):** Das Portal geht in Teilen live – A (Anmeldung), A + B (Bewerbung), A + B + C (Jury und Ergebnis), dazu die Gesamtversion. Umschaltbar per Einstellung `NEXT_PUBLIC_PORTAL_STAGE`, im Prototyp auch über die Demo-Steuerung.
 
 ## Capabilities and Constraints
 

@@ -98,19 +98,21 @@ export function NextStep({ view, action }: { view: ApplicantView; action?: React
   )
 }
 
-/** Kurze Phasenzeile für Listen: „Phase 02 von 4 · Fragebogen wird freigeschaltet“. */
+/** Kurze Phasenzeile für Listen: „Phase 02 von 4 · Fragebogen wird freigeschaltet“ – mit so vielen Phasen, wie die Ausbaustufe hat. */
 export function PhaseLine({ view }: { view: ApplicantView }) {
   const phase = PHASES[view.phase - 1]
+  const step = view.steps.find((item) => item.number === view.phase)
   return (
     <span className={styles.phaseLine}>
       <span className={styles.phaseLineDots} aria-hidden="true">
-        {view.steps.map((step) => (
-          <span key={step.number} className={styles[`dot_${step.state}`]} />
+        {view.steps.map((item) => (
+          <span key={item.number} className={styles[`dot_${item.state}`]} />
         ))}
       </span>
       <span>
-        Phase {String(view.phase).padStart(2, '0')} von 4 · {phase.title}
-        {view.steps[view.phase - 1].state === 'closed' ? ' · abgeschlossen' : ''}
+        Phase {String(view.phase).padStart(2, '0')}
+        {view.steps.length > 1 ? ` von ${view.steps.length}` : ''} · {step?.state === 'done' ? step.note : phase.title}
+        {step?.state === 'closed' ? ' · abgeschlossen' : ''}
       </span>
     </span>
   )

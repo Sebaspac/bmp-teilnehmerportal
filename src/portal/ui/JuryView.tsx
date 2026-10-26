@@ -11,9 +11,9 @@ import { portalContent } from '@/portal/content/portalContent'
 import { runCommand } from '@/portal/data/portalClient'
 import { jurorById, submissionCompany, submittedSubmissions } from '@/portal/domain/selectors'
 import type { Account, Juror, JuryVote, PortalSnapshot, Submission } from '@/portal/domain/types'
-import { summaryGroups } from '@/portal/ui/QuestionnaireSheet'
-import { prizeTitles, prizesOf } from '@/portal/domain/questionnaire'
-import { ReviewList } from '@/portal/ui/SubmissionSheet'
+import { prizeTitles } from '@/portal/domain/questionnaire'
+import { APPLICATION_DOCS } from '@/portal/domain/application'
+import { ApplicationContents, DocFileList } from '@/portal/ui/ApplicationView'
 import styles from '@/portal/ui/portal.module.css'
 
 const VOTES: JuryVote[] = ['ja', 'vielleicht', 'nein']
@@ -30,7 +30,8 @@ function ownStatus(process: Submission['process'], juror: Juror): { label: strin
 
 /**
  * Juryansicht: Jedes Mitglied gehört zu genau einer Jury-Art – Jury 1 stimmt Ja/Vielleicht/Nein, Jury 2 vergibt Punkte –
- * und sieht nur die ihm zugewiesenen Fragebögen. Nie Teil der Bewerberansicht.
+ * und sieht nur die ihm zugewiesenen Bewerbungen: je Unternehmen alle sechs Unterlagen und die Fragebögen der gewählten
+ * Preise. Nie Teil der Bewerberansicht.
  */
 export function JuryView({ state, account }: { state: PortalSnapshot; account: Account | null }) {
   const copy = portalContent.jury
@@ -95,14 +96,14 @@ function JurorList({ state, juror }: { state: PortalSnapshot; juror: Juror }) {
       <p className={styles.juryCount}>{copy.count(list.length, open)}</p>
       <ul className={styles.juryList}>
         {list.map((submission) => (
-          <JuryItem key={submission.id} submission={submission} juror={juror} />
+          <JuryItem key={submission.id} state={state} submission={submission} juror={juror} />
         ))}
       </ul>
     </>
   )
 }
 
-function JuryItem({ submission, juror }: { submission: Submission; juror: Juror }) {
+function JuryItem({ state, submission, juror }: { state: PortalSnapshot; submission: Submission; juror: Juror }) {
   const copy = portalContent.jury
   const p = submission.process
   const stageTone = p.jury === 'abgeschlossen' ? 'abgeschlossen' : p.jury === 'zugewiesen' ? 'wartend' : 'bearbeitung'
@@ -120,7 +121,7 @@ function JuryItem({ submission, juror }: { submission: Submission; juror: Juror 
             {submissionCompany(submission)}
           </h2>
           <p className={styles.rowMeta}>
-            {prizesOf(p.answers).length > 0 && <span>{prizeTitles(prizesOf(p.answers))}</span>}
+            {p.prizes.length > 0 && <span>{prizeTitles(p.prizes)}</span>}
             <span>Eingangsnummer {submission.reference}</span>
           </p>
           <p className={cx(styles.juryOwn, own.open && styles.juryOwnOpen)}>
@@ -130,10 +131,19 @@ function JuryItem({ submission, juror }: { submission: Submission; juror: Juror 
         <StatusBadge label={JURY_LABEL[p.jury]} tone={stageTone} />
       </div>
 
+      {/* Alle Unterlagen des Unternehmens stehen offen; die Fragebögen sind lang und lassen sich aufklappen. */}
+      <section className={styles.juryDocs} aria-labelledby={`jury-docs-${submission.id}`}>
+        <h3 className={styles.miniHeading} id={`jury-docs-${submission.id}`}>
+          {copy.docsTitle(APPLICATION_DOCS.length)}
+        </h3>
+        <DocFileList process={p} />
+        <p className={styles.hint}>{copy.docsNote}</p>
+      </section>
+
       <details className={styles.blockDetails}>
-        <summary className={styles.blockToggle}>{copy.readAnswers}</summary>
+        <summary className={styles.blockToggle}>{copy.readAnswers(Object.keys(p.questionnaires).length)}</summary>
         <div className={styles.blockBody}>
-          <ReviewList groups={summaryGroups(p.answers)} />
+          <ApplicationContents data={state} process={p} docs={false} />
         </div>
       </details>
 

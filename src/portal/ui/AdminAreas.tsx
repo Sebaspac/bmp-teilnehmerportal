@@ -9,8 +9,9 @@ import { downloadCsv } from '@/portal/ui/download'
 import { SelectField, TextField, cx, focusFirstInvalid } from '@/portal/ui/fields'
 import { DOC_META, DOC_STATUS_LABEL, JURY_TYPE_LABEL, ROUND_LABEL, documentsProgress } from '@/portal/domain/process'
 import { portalContent } from '@/portal/content/portalContent'
-import { reportCommandError, runCommand, sendCommand } from '@/portal/data/portalClient'
-import { PERMISSIONS, ROLE_PERMISSIONS, ROLES, can, type Role } from '@/portal/domain/permissions'
+import { reportCommandError, runCommand, sendCommand, useProcessContext, useStage } from '@/portal/data/portalClient'
+import { PERMISSIONS, PERMISSION_FEATURE, ROLES, ROLE_FEATURE, can, type Role } from '@/portal/domain/permissions'
+import { ROUND_FEATURE, hasFeature } from '@/portal/domain/release'
 import { jurorById, registrationOpen, staffAccounts, submittedSubmissions } from '@/portal/domain/selectors'
 import { DOC_KEYS, type Account, type PortalSnapshot, type ProcessState, type RoundStatus, type StaffRole } from '@/portal/domain/types'
 import styles from '@/portal/ui/portal.module.css'
@@ -21,8 +22,11 @@ const ROUND_ORDER: RoundStatus[] = ['vorbereitung', 'anmeldung_offen', 'anmeldun
 
 export function RoundAdmin({ state }: { state: PortalSnapshot }) {
   const copy = portalContent.admin.roundAdmin
-  const index = ROUND_ORDER.indexOf(state.round)
-  const next = ROUND_ORDER[index + 1]
+  const stage = useStage()
+  // Nur die Status der Ausbaustufe (der aktuelle bleibt sichtbar, auch wenn er zu einer späteren Stufe gehört).
+  const order = ROUND_ORDER.filter((status) => hasFeature(stage, ROUND_FEATURE[status]) || status === state.round)
+  const index = order.indexOf(state.round)
+  const next = order[index + 1]
   const open = registrationOpen(state)
   const submitted = submittedSubmissions(state).length
   const drafts = state.submissions.filter((submission) => submission.status === 'entwurf').length
@@ -40,7 +44,7 @@ export function RoundAdmin({ state }: { state: PortalSnapshot }) {
           {copy.statusTitle}
         </h3>
         <ol className={styles.roundSteps}>
-          {ROUND_ORDER.map((status, position) => (
+          {order.map((status, position) => (
             <li
               key={status}
               className={cx(styles.roundStep, position < index && styles.roundStepDone, position === index && styles.roundStepCurrent)}
@@ -67,7 +71,7 @@ export function RoundAdmin({ state }: { state: PortalSnapshot }) {
           <label className={styles.roundDirect}>
             <span>{copy.direct}</span>
             <select className={styles.select} value={state.round} onChange={(event) => void runCommand({ type: 'round.setStatus', status: event.target.value as RoundStatus })}>
-              {ROUND_ORDER.map((status) => (
+              {order.map((status) => (
                 <option key={status} value={status}>
                   {ROUND_LABEL[status]}
                 </option>
@@ -102,13 +106,15 @@ export function RoundAdmin({ state }: { state: PortalSnapshot }) {
             value={state.roundSettings.registrationDeadline}
             onValueChange={(value) => void runCommand({ type: 'round.setSettings', patch: { registrationDeadline: value } })}
           />
-          <TextField
-            label={copy.questionnaireDeadline}
-            hint={copy.questionnaireDeadlineHint}
-            type="date"
-            value={state.roundSettings.questionnaireDeadline}
-            onValueChange={(value) => void runCommand({ type: 'round.setSettings', patch: { questionnaireDeadline: value } })}
-          />
+          {hasFeature(stage, 'bewerbung') && (
+            <TextField
+              label={copy.questionnaireDeadline}
+              hint={copy.questionnaireDeadlineHint}
+              type="date"
+              value={state.roundSettings.questionnaireDeadline}
+              onValueChange={(value) => void runCommand({ type: 'round.setSettings', patch: { questionnaireDeadline: value } })}
+            />
+          )}
         </div>
       </section>
     </div>
@@ -143,10 +149,11 @@ export function DocumentsCell({ process }: { process: ProcessState }) {
 /** Exporte als Liste: je Zeile eine Datei mit Inhalt, Anzahl und Download. */
 export function ExportsSection({ state }: { state: PortalSnapshot }) {
   const copy = portalContent.admin.exportsRights
+  const ctx = useProcessContext()
   const [last, setLast] = useState<{ filename: string; count: number } | null>(null)
 
   const run = (kind: ExportKind) => {
-    const result = buildExport(state, kind)
+    const result = buildExport(state, kind, ctx)
     downloadCsv(result.filename, result.csv)
     setLast({ filename: result.filename, count: result.count })
   }
@@ -154,7 +161,7 @@ export function ExportsSection({ state }: { state: PortalSnapshot }) {
   return (
     <section aria-label={copy.exportsTitle}>
       <ul className={styles.exportList}>
-        {EXPORTS.map((item) => {
+        {EXPORTS.filter((item) => hasFeature(ctx.stage, item.feature)).map((item) => {
           const count = submittedSubmissions(state).filter(item.filter).length
           return (
             <li key={item.kind} className={styles.exportRow}>
@@ -182,7 +189,11 @@ export function ExportsSection({ state }: { state: PortalSnapshot }) {
 
 export function RightsSection({ state, sessionAccountId }: { state: PortalSnapshot; sessionAccountId: string | null }) {
   const copy = portalContent.admin.exportsRights
-  const users = staffAccounts(state)
+  const stage = useStage()
+  // Rechte, Rollen und Zugänge der Ausbaustufe – Jury erst ab A + B + C.
+  const permissions = PERMISSIONS.filter((permission) => hasFeature(stage, PERMISSION_FEATURE[permission]))
+  const roles = ROLES.filter((role) => hasFeature(stage, ROLE_FEATURE[role]))
+  const users = staffAccounts(state).filter((account) => account.role !== 'jury' || hasFeature(stage, 'jury'))
   const [shown, setShown] = useState<Record<string, boolean>>({})
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -222,13 +233,16 @@ export function RightsSection({ state, sessionAccountId }: { state: PortalSnapsh
 
   return (
     <section aria-label={copy.rightsTitle} className={styles.rightsSection}>
-      <h2 className={styles.sectionHeading}>{copy.matrixTitle}</h2>
-      <div className={styles.tableWrap}>
+      <h2 className={styles.sectionHeading} id="rechte-matrix">
+        {copy.matrixTitle}
+      </h2>
+      {/* Auf schmalen Bildschirmen scrollt die Matrix seitlich – per Tastatur erreichbar. */}
+      <div className={styles.tableWrap} tabIndex={0} role="region" aria-labelledby="rechte-matrix">
         <table className={cx(styles.table, styles.matrix)}>
           <thead>
             <tr>
               <th scope="col">{copy.permission}</th>
-              {ROLES.map((item) => (
+              {roles.map((item) => (
                 <th key={item} scope="col">
                   {copy.roles[item]}
                 </th>
@@ -236,10 +250,10 @@ export function RightsSection({ state, sessionAccountId }: { state: PortalSnapsh
             </tr>
           </thead>
           <tbody>
-            {PERMISSIONS.map((permission) => (
+            {permissions.map((permission) => (
               <tr key={permission}>
                 <th scope="row">{copy.permissions[permission]}</th>
-                {ROLES.map((item) => (
+                {roles.map((item) => (
                   <td key={item} data-label={copy.roles[item]}>
                     {can(item, permission) ? (
                       <span className={styles.matrixYes}>
@@ -281,7 +295,7 @@ export function RightsSection({ state, sessionAccountId }: { state: PortalSnapsh
             {copy.create}
           </button>
         </div>
-        <p className={styles.hint}>{copy.createNote}</p>
+        <p className={styles.hint}>{hasFeature(stage, 'jury') ? copy.createNote : copy.createNoteNoJury}</p>
       </div>
 
       <div className={styles.tableWrap}>

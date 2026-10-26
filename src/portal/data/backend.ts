@@ -10,6 +10,7 @@
  */
 
 import type { CommandError, CommandResult, PortalCommand } from '@/portal/domain/commands'
+import type { Stage } from '@/portal/domain/release'
 import type { ScenarioId } from '@/portal/domain/seed'
 import type { PortalSnapshot } from '@/portal/domain/types'
 
@@ -46,4 +47,13 @@ export interface DemoControls {
   simulateVotes(submissionId: string): void
   /** Alle Demo-Daten auf den Ausgangsstand setzen. */
   reset(): void
+  /**
+   * Ausbaustufe für die Vorführung umschalten (`null` = wie eingestellt, `NEXT_PUBLIC_PORTAL_STAGE`). Im echten System
+   * ist die Stufe eine Einstellung des Deployments, keine Funktion der Oberfläche.
+   */
+  setStage(stage: Stage | null): void
+  /** Gerade gültige Ausbaustufe (Vorführung oder Einstellung). */
+  stage(): Stage
+  /** Meldet einen Wechsel der Ausbaustufe. */
+  subscribeStage(listener: () => void): () => void
 }

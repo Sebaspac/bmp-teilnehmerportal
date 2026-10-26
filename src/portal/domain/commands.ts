@@ -6,15 +6,17 @@
  * - Backend: Ein Route Handler lädt die betroffenen Datensätze, ruft `executeCommand` mit dem Akteur aus der
  *   Server-Sitzung auf und speichert, was in `changed` steht. Serverseitig gelten so exakt dieselben Regeln.
  *
- * Neue Aktion: Typ in `PortalCommand` ergänzen, in `COMMAND_SPEC` Zuständigkeit und Recht eintragen und in
+ * Neue Aktion: Typ in `PortalCommand` ergänzen, in `COMMAND_SPEC` Zuständigkeit, Recht und Ausbaustufe eintragen und in
  * `apply` Voraussetzungen und Wirkung beschreiben. Die Oberfläche ruft sie über `runCommand` (data/portalClient.ts)
  * auf. Die Erwartungen stehen als Tests in tests/int/portal-domain.int.spec.ts.
  */
 
 import { isValidSubmissionEmail } from '@/shared/formSubmission'
+import { APPLICATION_DOCS, applicationOpen, applicationProgress, checkUpload, docsEditable, formatBytes } from '@/portal/domain/application'
 import { DOC_META, JURY_LABEL, RESULT_LABEL, canRelease, juryProgress } from '@/portal/domain/process'
 import { actorCan, type Actor, type Permission } from '@/portal/domain/permissions'
-import { CONFIRM_KEY, QUESTIONNAIRE, prizesOf, validateSection } from '@/portal/domain/questionnaire'
+import { CONFIRM_KEY, PRIZE_IDS, definitionOf, definitionProblem, prizeById, releasedPrizes, sameStructure, sortPrizes, validateSection } from '@/portal/domain/questionnaire'
+import { DEFAULT_STAGE, hasFeature, stageLabel, type Feature, type Stage } from '@/portal/domain/release'
 import { validateRegistration } from '@/portal/domain/registration'
 import { defaultAssignment, formatDay, isProfileComplete, normalizeEmail, registrationOpen } from '@/portal/domain/selectors'
 import {
@@ -25,14 +27,18 @@ import {
   initialProcess,
   juryAccount,
   type Account,
+  type AppDocKey,
   type DocKey,
   type Juror,
   type JuryType,
   type JuryVote,
   type PortalData,
+  type PrizeId,
   type ProcessState,
   type Profile,
+  type QuestionSection,
   type QuestionnaireAnswers,
+  type QuestionnaireDefinition,
   type ResultStatus,
   type ReviewStatus,
   type RoundSettings,
@@ -54,15 +60,19 @@ export type PortalCommand =
   | { type: 'draft.update'; submissionId: string; patch: DraftInput }
   | { type: 'draft.submit'; submissionId: string }
   | { type: 'draft.discard'; submissionId: string }
-  | { type: 'questionnaire.save'; submissionId: string; answers: QuestionnaireAnswers; step: number }
-  | { type: 'questionnaire.submit'; submissionId: string; answers: QuestionnaireAnswers }
+  // Bewerbung (Phase 02): Preise wählen, je Preis einen Fragebogen ausfüllen, sechs Unterlagen hochladen
+  | { type: 'application.setPrizes'; submissionId: string; prizes: PrizeId[] }
+  | { type: 'questionnaire.save'; submissionId: string; prize: PrizeId; answers: QuestionnaireAnswers; step: number }
+  | { type: 'questionnaire.submit'; submissionId: string; prize: PrizeId; answers: QuestionnaireAnswers }
+  /** Prototyp: nur Name und Größe. Echtes Backend: zuerst die Datei hochladen, dann hier ihre Referenz mitgeben. */
+  | { type: 'application.uploadDoc'; submissionId: string; key: AppDocKey; fileName: string; size: number }
   | { type: 'documents.submit'; submissionId: string; key: DocKey; value?: string; fileName?: string }
   // Verwaltung: Vorgang steuern
   | { type: 'review.set'; submissionId: string; status: Exclude<ReviewStatus, 'neu'> }
   | { type: 'payment.invoice'; submissionId: string }
   | { type: 'payment.confirm'; submissionId: string }
-  | { type: 'questionnaire.setDeadline'; submissionId: string; deadline: string }
-  | { type: 'questionnaire.release'; submissionId: string }
+  | { type: 'application.setDeadline'; submissionId: string; deadline: string }
+  | { type: 'application.release'; submissionId: string }
   | { type: 'jury.assign'; submissionId: string }
   | { type: 'jury.setMember'; submissionId: string; jurorId: string; assigned: boolean }
   | { type: 'jury.start'; submissionId: string; stage: JuryType }
@@ -73,6 +83,10 @@ export type PortalCommand =
   // Jury
   | { type: 'jury.vote'; submissionId: string; jurorId: string; vote: JuryVote }
   | { type: 'jury.points'; submissionId: string; jurorId: string; points: number }
+  // Verwaltung: Fragebögen der Preise
+  | { type: 'questionnaireDef.update'; prize: PrizeId; sections: QuestionSection[] }
+  | { type: 'questionnaireDef.release'; prize: PrizeId }
+  | { type: 'questionnaireDef.withdraw'; prize: PrizeId }
   // Verwaltung: Runde, Jury, Zugänge
   | { type: 'round.setStatus'; status: RoundStatus }
   | { type: 'round.setSettings'; patch: Partial<RoundSettings> }
@@ -89,40 +103,45 @@ export type CommandType = PortalCommand['type']
 export type CommandScope = 'self' | 'applicant' | 'jury' | 'staff'
 
 /**
- * Zuständigkeit und Recht je Befehl – Grundlage für `authorize` und die Befehlstabelle in
- * docs/teilnehmerportal-backend.md.
+ * Zuständigkeit, Recht und Baustein (Ausbaustufe, `domain/release.ts`) je Befehl – Grundlage für `authorize`, die
+ * Stufenprüfung in `applyCommand` und die Befehlstabelle in docs/teilnehmerportal-backend.md.
  */
-export const COMMAND_SPEC: Record<CommandType, { scope: CommandScope; permission?: Permission; summary: string }> = {
-  'profile.save': { scope: 'self', summary: 'Eigene Stammdaten speichern' },
-  'draft.create': { scope: 'applicant', summary: 'Entwurf einer Anmeldung anlegen (nur bei offener Anmeldung)' },
-  'draft.update': { scope: 'applicant', summary: 'Eigenen Entwurf zwischenspeichern' },
-  'draft.submit': { scope: 'applicant', summary: 'Eigene Anmeldung einreichen – vergibt die Eingangsnummer' },
-  'draft.discard': { scope: 'applicant', summary: 'Eigenen Entwurf verwerfen' },
-  'questionnaire.save': { scope: 'applicant', summary: 'Fragebogen zwischenspeichern' },
-  'questionnaire.submit': { scope: 'applicant', summary: 'Fragebogen einreichen' },
-  'documents.submit': { scope: 'applicant', summary: 'Gewinnerunterlage einreichen' },
-  'review.set': { scope: 'staff', permission: 'review', summary: 'Anmeldung prüfen: in Prüfung, Rückfrage, geprüft' },
-  'payment.invoice': { scope: 'staff', permission: 'payment', summary: 'Rechnung als gestellt markieren' },
-  'payment.confirm': { scope: 'staff', permission: 'payment', summary: 'Zahlungseingang vermerken' },
-  'questionnaire.setDeadline': { scope: 'staff', permission: 'release', summary: 'Frist für den Fragebogen setzen oder entfernen' },
-  'questionnaire.release': { scope: 'staff', permission: 'release', summary: 'Fragebogen freigeben' },
-  'jury.assign': { scope: 'staff', permission: 'jury', summary: 'Vorgang der Jury zuweisen (ohne Auswahl: Standardbesetzung)' },
-  'jury.setMember': { scope: 'staff', permission: 'jury', summary: 'Jurymitglied einem Fragebogen zuweisen oder lösen' },
-  'jury.start': { scope: 'staff', permission: 'jury', summary: 'Jury 1 bzw. Jury 2 starten' },
-  'jury.finish': { scope: 'staff', permission: 'jury', summary: 'Juryprüfung abschließen' },
-  'result.set': { scope: 'staff', permission: 'results', summary: 'Ergebnis festlegen (vorbereiten, Einladung, keine Einladung)' },
-  'documents.request': { scope: 'staff', permission: 'documents', summary: 'Gewinnerunterlagen anfordern' },
-  'documents.review': { scope: 'staff', permission: 'documents', summary: 'Gewinnerunterlage prüfen oder Nachbesserung erbitten' },
-  'jury.vote': { scope: 'jury', permission: 'evaluate', summary: 'Ersteinschätzung abgeben (Jury 1)' },
-  'jury.points': { scope: 'jury', permission: 'evaluate', summary: 'Punkte vergeben (Jury 2)' },
-  'round.setStatus': { scope: 'staff', permission: 'round', summary: 'Status der Wettbewerbsrunde setzen' },
-  'round.setSettings': { scope: 'staff', permission: 'round', summary: 'Anmeldeschluss und Standardfrist ändern' },
-  'juror.create': { scope: 'staff', permission: 'jury', summary: 'Jurymitglied mit Zugang anlegen' },
-  'juror.update': { scope: 'staff', permission: 'jury', summary: 'Jurymitglied ändern (Jury-Art nur ohne Zuweisungen)' },
-  'staff.create': { scope: 'staff', permission: 'rights', summary: 'Internen Benutzer anlegen' },
-  'staff.setRole': { scope: 'staff', permission: 'rights', summary: 'Rolle eines internen Benutzers ändern' },
-  'staff.setActive': { scope: 'staff', permission: 'rights', summary: 'Internen Zugang aktivieren oder deaktivieren' },
-  'account.resetAccess': { scope: 'staff', permission: 'rights', summary: 'Zugang neu ausstellen (bei Jury-Zugängen mit Recht „jury“)' },
+export const COMMAND_SPEC: Record<CommandType, { scope: CommandScope; permission?: Permission; feature: Feature; summary: string }> = {
+  'profile.save': { scope: 'self', feature: 'anmeldung', summary: 'Eigene Stammdaten speichern' },
+  'draft.create': { scope: 'applicant', feature: 'anmeldung', summary: 'Entwurf einer Anmeldung anlegen (nur bei offener Anmeldung)' },
+  'draft.update': { scope: 'applicant', feature: 'anmeldung', summary: 'Eigenen Entwurf zwischenspeichern' },
+  'draft.submit': { scope: 'applicant', feature: 'anmeldung', summary: 'Eigene Anmeldung einreichen – vergibt die Eingangsnummer' },
+  'draft.discard': { scope: 'applicant', feature: 'anmeldung', summary: 'Eigenen Entwurf verwerfen' },
+  'application.setPrizes': { scope: 'applicant', feature: 'bewerbung', summary: 'Preise wählen, für die sich das Unternehmen bewirbt' },
+  'questionnaire.save': { scope: 'applicant', feature: 'bewerbung', summary: 'Fragebogen eines Preises zwischenspeichern' },
+  'questionnaire.submit': { scope: 'applicant', feature: 'bewerbung', summary: 'Fragebogen eines Preises einreichen' },
+  'application.uploadDoc': { scope: 'applicant', feature: 'bewerbung', summary: 'Bewerbungsunterlage hochladen oder austauschen' },
+  'documents.submit': { scope: 'applicant', feature: 'gewinnerunterlagen', summary: 'Gewinnerunterlage einreichen' },
+  'review.set': { scope: 'staff', permission: 'review', feature: 'anmeldung', summary: 'Anmeldung prüfen: in Prüfung, Rückfrage, geprüft' },
+  'payment.invoice': { scope: 'staff', permission: 'payment', feature: 'bewerbung', summary: 'Rechnung als gestellt markieren' },
+  'payment.confirm': { scope: 'staff', permission: 'payment', feature: 'bewerbung', summary: 'Zahlungseingang vermerken' },
+  'application.setDeadline': { scope: 'staff', permission: 'release', feature: 'bewerbung', summary: 'Frist für die Bewerbung setzen oder entfernen' },
+  'application.release': { scope: 'staff', permission: 'release', feature: 'bewerbung', summary: 'Bewerbung freigeben (Fragebögen und Unterlagen)' },
+  'questionnaireDef.update': { scope: 'staff', permission: 'questionnaires', feature: 'bewerbung', summary: 'Fragebogen eines Preises bearbeiten (freigeschaltet: nur Texte)' },
+  'questionnaireDef.release': { scope: 'staff', permission: 'questionnaires', feature: 'bewerbung', summary: 'Fragebogen eines Preises für Bewerber freischalten' },
+  'questionnaireDef.withdraw': { scope: 'staff', permission: 'questionnaires', feature: 'bewerbung', summary: 'Freischaltung zurückziehen (nur solange niemand begonnen hat)' },
+  'jury.assign': { scope: 'staff', permission: 'jury', feature: 'jury', summary: 'Vorgang der Jury zuweisen (ohne Auswahl: Standardbesetzung)' },
+  'jury.setMember': { scope: 'staff', permission: 'jury', feature: 'jury', summary: 'Jurymitglied einer Bewerbung zuweisen oder lösen' },
+  'jury.start': { scope: 'staff', permission: 'jury', feature: 'jury', summary: 'Jury 1 bzw. Jury 2 starten' },
+  'jury.finish': { scope: 'staff', permission: 'jury', feature: 'jury', summary: 'Juryprüfung abschließen' },
+  'result.set': { scope: 'staff', permission: 'results', feature: 'jury', summary: 'Ergebnis festlegen (vorbereiten, Einladung, keine Einladung)' },
+  'documents.request': { scope: 'staff', permission: 'documents', feature: 'gewinnerunterlagen', summary: 'Gewinnerunterlagen anfordern' },
+  'documents.review': { scope: 'staff', permission: 'documents', feature: 'gewinnerunterlagen', summary: 'Gewinnerunterlage prüfen oder Nachbesserung erbitten' },
+  'jury.vote': { scope: 'jury', permission: 'evaluate', feature: 'jury', summary: 'Ersteinschätzung abgeben (Jury 1)' },
+  'jury.points': { scope: 'jury', permission: 'evaluate', feature: 'jury', summary: 'Punkte vergeben (Jury 2)' },
+  'round.setStatus': { scope: 'staff', permission: 'round', feature: 'anmeldung', summary: 'Status der Wettbewerbsrunde setzen' },
+  'round.setSettings': { scope: 'staff', permission: 'round', feature: 'anmeldung', summary: 'Anmeldeschluss und Standardfrist ändern' },
+  'juror.create': { scope: 'staff', permission: 'jury', feature: 'jury', summary: 'Jurymitglied mit Zugang anlegen' },
+  'juror.update': { scope: 'staff', permission: 'jury', feature: 'jury', summary: 'Jurymitglied ändern (Jury-Art nur ohne Zuweisungen)' },
+  'staff.create': { scope: 'staff', permission: 'rights', feature: 'anmeldung', summary: 'Internen Benutzer anlegen' },
+  'staff.setRole': { scope: 'staff', permission: 'rights', feature: 'anmeldung', summary: 'Rolle eines internen Benutzers ändern' },
+  'staff.setActive': { scope: 'staff', permission: 'rights', feature: 'anmeldung', summary: 'Internen Zugang aktivieren oder deaktivieren' },
+  'account.resetAccess': { scope: 'staff', permission: 'rights', feature: 'anmeldung', summary: 'Zugang neu ausstellen (bei Jury-Zugängen mit Recht „jury“)' },
 }
 
 /* ── Ergebnis ────────────────────────────────────────────────────────────── */
@@ -135,12 +154,12 @@ type ResultMap = {
 }
 export type CommandResult<C extends PortalCommand> = C['type'] extends keyof ResultMap ? ResultMap[C['type']] : undefined
 
-/** Fehlerarten – das Backend bildet sie auf HTTP-Status ab (401, 403, 404, 409, 422). */
-export type CommandErrorCode = 'unauthenticated' | 'forbidden' | 'not_found' | 'invalid_state' | 'invalid_input' | 'conflict'
+/** Fehlerarten – das Backend bildet sie auf HTTP-Status ab (401, 403, 404, 409, 422; `unavailable` = außerhalb der Ausbaustufe, 404). */
+export type CommandErrorCode = 'unauthenticated' | 'forbidden' | 'not_found' | 'invalid_state' | 'invalid_input' | 'conflict' | 'unavailable'
 export type CommandError = { code: CommandErrorCode; message: string; field?: string }
 
 /** Welche Datensätze sich geändert haben – das Backend speichert genau diese. */
-export type Changes = { submissions: string[]; removedSubmissions: string[]; accounts: string[]; jurors: string[]; round: boolean }
+export type Changes = { submissions: string[]; removedSubmissions: string[]; accounts: string[]; jurors: string[]; questionnaires: PrizeId[]; round: boolean }
 
 export type CommandOutcome<C extends PortalCommand = PortalCommand> =
   | { ok: true; data: PortalData; changed: Changes; result: CommandResult<C> }
@@ -153,6 +172,8 @@ export type CommandContext = {
   newReference: () => string
   /** Nur Prototyp: Passwort für neue Testzugänge. Das echte Backend lässt es weg und verschickt Einladungslinks. */
   newPassword?: (kind: 'jury' | 'team') => string
+  /** Ausbaustufe (`NEXT_PUBLIC_PORTAL_STAGE`); Befehle außerhalb der Stufe werden abgelehnt. Ohne Angabe: Gesamtversion. */
+  stage?: Stage
 }
 
 const MSG = {
@@ -209,8 +230,14 @@ export function executeCommand<C extends PortalCommand>(data: PortalData, actor:
   return applyCommand(data, actor, command, ctx)
 }
 
-/** Voraussetzungen prüfen und den Befehl ausführen – ohne Rechteprüfung (die macht `authorize`). Ändert `data` nicht. */
+/**
+ * Voraussetzungen prüfen und den Befehl ausführen – ohne Rechteprüfung (die macht `authorize`), aber mit Prüfung der
+ * Ausbaustufe. Ändert `data` nicht.
+ */
 export function applyCommand<C extends PortalCommand>(data: PortalData, actor: Actor, command: C, ctx: CommandContext): CommandOutcome<C> {
+  const stage = ctx.stage ?? DEFAULT_STAGE
+  if (!hasFeature(stage, COMMAND_SPEC[command.type].feature))
+    return { ok: false, error: { code: 'unavailable', message: `Diese Funktion ist in der Ausbaustufe „${stageLabel(stage)}“ nicht freigeschaltet.` } }
   return apply(data, actor, command, ctx) as CommandOutcome<C>
 }
 
@@ -218,7 +245,7 @@ export function applyCommand<C extends PortalCommand>(data: PortalData, actor: A
 
 type Outcome = CommandOutcome<PortalCommand>
 
-const NO_CHANGES: Changes = { submissions: [], removedSubmissions: [], accounts: [], jurors: [], round: false }
+const NO_CHANGES: Changes = { submissions: [], removedSubmissions: [], accounts: [], jurors: [], questionnaires: [], round: false }
 
 const done = (data: PortalData, changed: Partial<Changes>, result?: unknown): Outcome => ({
   ok: true,
@@ -291,7 +318,26 @@ function ownDraft(data: PortalData, submissionId: string): Submission | CommandE
 
 const decided = (process: ProcessState) => process.result === 'einladung' || process.result === 'keine_einladung'
 
-const QUESTIONNAIRE_OPEN = (process: ProcessState) => process.questionnaire === 'verfuegbar' || process.questionnaire === 'in_bearbeitung'
+const replaceDefinition = (data: PortalData, next: QuestionnaireDefinition): PortalData => ({
+  ...data,
+  questionnaires: data.questionnaires.map((item) => (item.prize === next.prize ? next : item)),
+})
+
+/**
+ * Stand der Bewerbung nach einer Änderung: `in_bearbeitung` ab der ersten Angabe, `eingereicht`, sobald alle
+ * Fragebögen und Unterlagen da sind (dann mit Zeitpunkt und Verlaufseintrag).
+ */
+function withApplicationStatus(data: PortalData, process: ProcessState, at: string, log?: string): { patch: Partial<ProcessState>; log?: string } {
+  const progress = applicationProgress(process, releasedPrizes(data))
+  if (process.application === 'eingereicht' || !progress.complete) {
+    const application = process.application === 'eingereicht' ? 'eingereicht' : progress.started ? 'in_bearbeitung' : process.application
+    return { patch: { ...process, application }, log }
+  }
+  const done = 'Bewerbung vollständig eingereicht'
+  return { patch: { ...process, application: 'eingereicht', applicationCompletedAt: at }, log: log ? `${log} · ${done}` : done }
+}
+
+const MSG_APPLICATION_CLOSED = 'Die Bewerbung ist nicht zur Bearbeitung freigegeben.'
 
 /* ── Ausführung ──────────────────────────────────────────────────────────── */
 
@@ -362,30 +408,60 @@ function apply(data: PortalData, actor: Actor, command: PortalCommand, ctx: Comm
       return done({ ...data, submissions: data.submissions.filter((item) => item.id !== draft.id) }, { removedSubmissions: [draft.id] })
     }
 
-    case 'questionnaire.save':
+    case 'application.setPrizes':
       return changeProcess(data, actor, ctx, command.submissionId, (process, at) => {
-        if (!QUESTIONNAIRE_OPEN(process)) return invalid('Der Fragebogen ist nicht zur Bearbeitung freigegeben.')
-        if (!Number.isInteger(command.step) || command.step < 0) return badInput('Ungültiger Abschnitt.')
-        return {
-          patch: {
-            answers: command.answers,
-            questionnaireStep: command.step,
-            questionnaireSavedAt: at,
-            questionnaire: process.questionnaire === 'verfuegbar' ? 'in_bearbeitung' : process.questionnaire,
-          },
-        }
+        if (!applicationOpen(process)) return invalid(MSG_APPLICATION_CLOSED)
+        const prizes = sortPrizes(command.prizes.filter((prize) => PRIZE_IDS.includes(prize)))
+        if (prizes.length === 0) return badInput('Bitte wählen Sie mindestens einen Preis.', 'prizes')
+        // Ein eingereichter Fragebogen bindet die Wahl dieses Preises.
+        const locked = process.prizes.filter((prize) => process.questionnaires[prize]?.status === 'eingereicht' && !prizes.includes(prize))
+        if (locked.length) return invalid(`Für den ${prizeById(locked[0]).title} ist der Fragebogen bereits eingereicht.`)
+        return withApplicationStatus(data, { ...process, prizes }, at, `Preise gewählt: ${prizes.map((prize) => prizeById(prize).short).join(', ')}`)
       })
 
+    case 'questionnaire.save':
     case 'questionnaire.submit':
       return changeProcess(data, actor, ctx, command.submissionId, (process, at) => {
-        if (!QUESTIONNAIRE_OPEN(process)) return invalid('Der Fragebogen ist nicht zur Bearbeitung freigegeben.')
-        if (prizesOf(command.answers).length === 0) return badInput('Bitte wählen Sie mindestens einen Preis.')
-        for (const section of QUESTIONNAIRE) {
+        if (!applicationOpen(process)) return invalid(MSG_APPLICATION_CLOSED)
+        if (!process.prizes.includes(command.prize)) return invalid('Dieser Preis ist nicht gewählt.')
+        const definition = definitionOf(data, command.prize)
+        if (definition?.status !== 'freigeschaltet') return invalid('Der Fragebogen für diesen Preis ist noch nicht freigeschaltet.')
+        const current = process.questionnaires[command.prize]
+        if (current?.status === 'eingereicht') return invalid('Dieser Fragebogen ist bereits eingereicht.')
+        if (command.type === 'questionnaire.save') {
+          if (!Number.isInteger(command.step) || command.step < 0) return badInput('Ungültiger Abschnitt.')
+          const saved = { status: 'in_bearbeitung' as const, answers: command.answers, step: command.step, savedAt: at }
+          return withApplicationStatus(data, { ...process, questionnaires: { ...process.questionnaires, [command.prize]: saved } }, at)
+        }
+        for (const section of definition.sections) {
           const field = Object.keys(validateSection(section, command.answers))[0]
           if (field) return badInput('Der Fragebogen ist unvollständig. Bitte prüfen Sie die markierten Angaben.', field)
         }
         if (command.answers[CONFIRM_KEY] !== 'ja') return badInput('Bitte bestätigen Sie Ihre Angaben.', CONFIRM_KEY)
-        return { patch: { answers: command.answers, questionnaire: 'eingereicht', questionnaireSubmittedAt: at }, log: 'Fragebogen eingereicht' }
+        const submitted = { status: 'eingereicht' as const, answers: command.answers, step: definition.sections.length, savedAt: at, submittedAt: at }
+        return withApplicationStatus(
+          data,
+          { ...process, questionnaires: { ...process.questionnaires, [command.prize]: submitted } },
+          at,
+          `Fragebogen „${prizeById(command.prize).title}“ eingereicht`,
+        )
+      })
+
+    case 'application.uploadDoc':
+      return changeProcess(data, actor, ctx, command.submissionId, (process, at) => {
+        if (!docsEditable(process)) return invalid(process.application === 'gesperrt' ? MSG_APPLICATION_CLOSED : 'Die Unterlagen liegen bereits bei der Jury und lassen sich nicht mehr austauschen.')
+        const doc = APPLICATION_DOCS.find((item) => item.key === command.key)
+        if (!doc) return badInput('Unbekannte Unterlage.')
+        const problem = checkUpload(command.fileName, command.size)
+        if (problem) return badInput(problem, command.key)
+        const replaced = Boolean(process.applicationDocs[command.key])
+        const file = { fileName: command.fileName.trim(), size: command.size, uploadedAt: at }
+        return withApplicationStatus(
+          data,
+          { ...process, applicationDocs: { ...process.applicationDocs, [command.key]: file } },
+          at,
+          `Unterlage „${doc.label}“ ${replaced ? 'ausgetauscht' : 'hochgeladen'} (${formatBytes(command.size)})`,
+        )
       })
 
     case 'documents.submit':
@@ -411,7 +487,7 @@ function apply(data: PortalData, actor: Actor, command: PortalCommand, ctx: Comm
 
     case 'review.set':
       return changeProcess(data, actor, ctx, command.submissionId, (process) => {
-        if (process.questionnaire !== 'gesperrt' || process.payment !== 'keine_rechnung')
+        if (process.application !== 'gesperrt' || process.payment !== 'keine_rechnung')
           return invalid('Die Prüfung lässt sich nur ändern, solange noch keine Rechnung gestellt ist.')
         const log = { in_pruefung: 'Anmeldung in Prüfung gesetzt', rueckfrage: 'Rückfrage zur Anmeldung vermerkt', geprueft: 'Prüfung abgeschlossen, für nächsten Schritt vorgemerkt' }
         return { patch: { review: command.status }, log: log[command.status] }
@@ -420,34 +496,34 @@ function apply(data: PortalData, actor: Actor, command: PortalCommand, ctx: Comm
     case 'payment.invoice':
       return changeProcess(data, actor, ctx, command.submissionId, (process) => {
         if (process.review !== 'geprueft') return invalid('Die Anmeldung ist noch nicht geprüft.')
-        if (process.questionnaire !== 'gesperrt' || process.payment !== 'keine_rechnung') return invalid('Die Rechnung ist bereits gestellt.')
+        if (process.application !== 'gesperrt' || process.payment !== 'keine_rechnung') return invalid('Die Rechnung ist bereits gestellt.')
         return { patch: { payment: 'rechnung_offen' }, log: 'Rechnung als gestellt markiert (Demo)' }
       })
 
     case 'payment.confirm':
       return changeProcess(data, actor, ctx, command.submissionId, (process) => {
         if (process.payment === 'keine_rechnung') return invalid('Es ist noch keine Rechnung gestellt.')
-        if (process.questionnaire !== 'gesperrt') return invalid('Der Fragebogen ist bereits freigegeben.')
+        if (process.application !== 'gesperrt') return invalid('Die Bewerbung ist bereits freigegeben.')
         return { patch: { payment: 'zahlung_eingegangen' }, log: 'Zahlungseingang manuell vermerkt (Demo)' }
       })
 
-    case 'questionnaire.setDeadline':
+    case 'application.setDeadline':
       return changeProcess(data, actor, ctx, command.submissionId, () => {
         if (command.deadline && !isDate(command.deadline)) return badInput(MSG.date, 'deadline')
         return { patch: { deadline: command.deadline }, log: command.deadline ? `Frist gesetzt: ${formatDay(command.deadline)}` : 'Frist entfernt' }
       })
 
-    case 'questionnaire.release':
+    case 'application.release':
       return changeProcess(data, actor, ctx, command.submissionId, (process) => {
-        if (process.questionnaire !== 'gesperrt') return invalid('Der Fragebogen ist bereits freigegeben.')
+        if (process.application !== 'gesperrt') return invalid('Die Bewerbung ist bereits freigegeben.')
         if (!canRelease(process)) return invalid('Die Freigabe ist erst nach Prüfung und Zahlungseingang möglich.')
         if (!process.deadline) return invalid('Bitte setzen Sie zuerst eine Frist.')
-        return { patch: { questionnaire: 'verfuegbar' }, log: 'Fragebogen freigegeben' }
+        return { patch: { application: 'verfuegbar' }, log: 'Bewerbung freigegeben (Fragebögen und Unterlagen)' }
       })
 
     case 'jury.assign':
       return changeProcess(data, actor, ctx, command.submissionId, (process) => {
-        if (process.questionnaire !== 'eingereicht') return invalid('Der Fragebogen ist noch nicht eingereicht.')
+        if (process.application !== 'eingereicht') return invalid('Die Bewerbung ist noch nicht vollständig eingereicht.')
         if (decided(process) || process.jury !== 'nicht_zugewiesen') return invalid('Der Vorgang ist der Jury bereits zugewiesen.')
         // Ohne eigene Auswahl bekommt der Vorgang alle Jurymitglieder (je Art).
         const nobody = process.assigned.jury1.length + process.assigned.jury2.length === 0
@@ -460,7 +536,7 @@ function apply(data: PortalData, actor: Actor, command: PortalCommand, ctx: Comm
       const juror = data.jurors.find((item) => item.id === command.jurorId)
       if (!juror) return failure('not_found', MSG.jurorNotFound)
       return changeProcess(data, actor, ctx, command.submissionId, (process) => {
-        if (process.questionnaire !== 'eingereicht') return invalid('Der Fragebogen ist noch nicht eingereicht.')
+        if (process.application !== 'eingereicht') return invalid('Die Bewerbung ist noch nicht vollständig eingereicht.')
         if (process.jury === 'abgeschlossen' || decided(process)) return invalid('Die Juryprüfung ist abgeschlossen.')
         const current = process.assigned[juror.type]
         const list = command.assigned ? Array.from(new Set([...current, juror.id])) : current.filter((id) => id !== juror.id)
@@ -470,7 +546,7 @@ function apply(data: PortalData, actor: Actor, command: PortalCommand, ctx: Comm
 
     case 'jury.start':
       return changeProcess(data, actor, ctx, command.submissionId, (process) => {
-        if (process.questionnaire !== 'eingereicht' || decided(process)) return invalid('Der Vorgang ist nicht in der Juryprüfung.')
+        if (process.application !== 'eingereicht' || decided(process)) return invalid('Der Vorgang ist nicht in der Juryprüfung.')
         const progress = juryProgress(process)
         if (command.stage === 'jury1') {
           if (process.jury !== 'zugewiesen') return invalid('Jury 1 startet nach dem Zuweisen.')
@@ -529,12 +605,41 @@ function apply(data: PortalData, actor: Actor, command: PortalCommand, ctx: Comm
       if (command.type === 'jury.points' && !(Number.isInteger(command.points) && command.points >= 1 && command.points <= 10))
         return failure('invalid_input', 'Bitte vergeben Sie 1 bis 10 Punkte.', 'points')
       return changeProcess(data, actor, ctx, command.submissionId, (process) => {
-        if (!process.assigned[stage].includes(juror.id)) return invalid('Dieser Fragebogen ist dem Jurymitglied nicht zugewiesen.')
+        if (!process.assigned[stage].includes(juror.id)) return invalid('Diese Bewerbung ist dem Jurymitglied nicht zugewiesen.')
         if (process.jury !== stage) return invalid(stage === 'jury1' ? 'Die Ersteinschätzung läuft derzeit nicht.' : 'Die Punktevergabe läuft derzeit nicht.')
         return command.type === 'jury.vote'
           ? { patch: { jury1: { ...process.jury1, [juror.id]: command.vote } } }
           : { patch: { jury2: { ...process.jury2, [juror.id]: command.points } } }
       })
+    }
+
+    /* Verwaltung: Fragebögen der Preise */
+
+    case 'questionnaireDef.update':
+    case 'questionnaireDef.release':
+    case 'questionnaireDef.withdraw': {
+      const definition = definitionOf(data, command.prize)
+      if (!definition) return failure('not_found', 'Diesen Fragebogen gibt es nicht.')
+      const at = ctx.now()
+      const changed = (next: QuestionnaireDefinition) => done(replaceDefinition(data, next), { questionnaires: [command.prize] })
+      if (command.type === 'questionnaireDef.update') {
+        const problem = definitionProblem(command.sections)
+        if (problem) return failure('invalid_input', problem)
+        if (definition.status === 'freigeschaltet' && !sameStructure(definition.sections, command.sections))
+          return failure('invalid_state', 'Der Fragebogen ist freigeschaltet: Sie können Texte ändern, aber keine Fragen hinzufügen, entfernen oder umstellen.')
+        return changed({ ...definition, sections: command.sections, updatedAt: at })
+      }
+      if (command.type === 'questionnaireDef.release') {
+        if (definition.status === 'freigeschaltet') return failure('invalid_state', 'Der Fragebogen ist bereits freigeschaltet.')
+        const problem = definitionProblem(definition.sections)
+        if (problem) return failure('invalid_state', problem)
+        return changed({ ...definition, status: 'freigeschaltet', releasedAt: at, updatedAt: at })
+      }
+      if (definition.status !== 'freigeschaltet') return failure('invalid_state', 'Der Fragebogen ist nicht freigeschaltet.')
+      // Zurückziehen nur, solange niemand Antworten gespeichert hat – sonst passten sie nach Änderungen nicht mehr.
+      if (data.submissions.some((item) => item.process.questionnaires?.[command.prize]))
+        return failure('invalid_state', 'Bewerber haben diesen Fragebogen bereits begonnen. Er lässt sich nicht mehr zurückziehen; Texte können Sie weiter ändern.')
+      return changed({ ...definition, status: 'entwurf', releasedAt: undefined, updatedAt: at })
     }
 
     /* Verwaltung: Runde */
@@ -573,7 +678,7 @@ function apply(data: PortalData, actor: Actor, command: PortalCommand, ctx: Comm
       if (!isValidSubmissionEmail(email)) return failure('invalid_input', MSG.email, 'email')
       if (emailTaken(data, email, juror.accountId)) return failure('conflict', MSG.emailTaken, 'email')
       // Die Jury-Art bestimmt die Bewertungsform – wechseln nur ohne Zuweisungen, damit keine Bewertung „verrutscht“.
-      const assignedSomewhere = data.submissions.some((item) => item.process.questionnaire === 'eingereicht' && item.process.assigned[juror.type].includes(juror.id))
+      const assignedSomewhere = data.submissions.some((item) => item.process.application === 'eingereicht' && item.process.assigned[juror.type].includes(juror.id))
       if (command.jurorType !== juror.type && assignedSomewhere) return failure('invalid_state', 'Die Jury-Art lässt sich nur ohne Zuweisungen ändern.', 'jurorType')
       const next: Juror = { ...juror, name: command.name.trim(), email, type: command.jurorType }
       const account = data.accounts.find((item) => item.id === juror.accountId)

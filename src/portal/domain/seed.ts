@@ -5,7 +5,9 @@
  * Die Testzugänge stehen in der Testanleitung und auf der Login-Seite.
  */
 
-import { demoAnswers } from '@/portal/domain/questionnaire'
+import { APPLICATION_DOCS } from '@/portal/domain/application'
+import { CONFIRM_KEY, SEED_QUESTIONNAIRES, demoAnswers, seedDefinitions, sortPrizes } from '@/portal/domain/questionnaire'
+import type { Feature } from '@/portal/domain/release'
 import { submissionCompany } from '@/portal/domain/selectors'
 import {
   defaultRoundSettings,
@@ -16,10 +18,11 @@ import {
   juryAccount,
   type Account,
   type JuryType,
+  type AppDocKey,
   type NominationData,
   type PortalData,
+  type PrizeId,
   type ProcessState,
-  type QuestionnaireAnswers,
   type SelfData,
   type Submission,
   type SubmissionType,
@@ -34,6 +37,41 @@ export const NEWEDGE_REFERENCE = 'BMP-L26GTL'
 const DEMO_ACCOUNT_ID = 'demo-newedge'
 export const SAMPLE_ACCOUNT_ID = 'demo-beispiele'
 const NOMINATOR_ACCOUNT_ID = 'demo-vorschlag'
+
+/** Beispieldateien der sechs Unterlagen – Namen und Größen sind erfunden, im Prototyp gibt es keine Dateien. */
+const DEMO_FILES: Record<AppDocKey, { fileName: string; size: number }> = {
+  praesentation: { fileName: 'Unternehmenspraesentation_Demo.pptx', size: 4_820_000 },
+  jahresabschluss: { fileName: 'Jahresabschluesse_2023-2025_Demo.pdf', size: 2_310_000 },
+  kennzahlen: { fileName: 'Kennzahlen_Demo.xlsx', size: 86_000 },
+  handelsregister: { fileName: 'Handelsregisterauszug_Demo.pdf', size: 412_000 },
+  organigramm: { fileName: 'Organigramm_Demo.pdf', size: 655_000 },
+  referenzen: { fileName: 'Referenzschreiben_Demo.docx', size: 128_000 },
+}
+
+/**
+ * Bewerbung für Demo-Daten: gewählte Preise, ausgefüllte Fragebögen und die ersten `docs` Unterlagen. `upTo` füllt den
+ * ersten Fragebogen nur bis zu diesem Abschnitt (in Bearbeitung); ohne `upTo` sind alle Fragebögen eingereicht.
+ */
+export function demoApplication(company: string, city: string, at: string, { prizes = ['bmp'], upTo, docs = APPLICATION_DOCS.length }: { prizes?: PrizeId[]; upTo?: number; docs?: number } = {}): Partial<ProcessState> {
+  const complete = upTo === undefined
+  const questionnaires = Object.fromEntries(
+    sortPrizes(prizes).map((prize, index) => {
+      const sections = SEED_QUESTIONNAIRES[prize]
+      if (complete) return [prize, { status: 'eingereicht' as const, answers: { ...demoAnswers(sections, company, city), [CONFIRM_KEY]: 'ja' }, step: sections.length, savedAt: at, submittedAt: at }]
+      // In Bearbeitung: der erste Preis teilweise ausgefüllt, die übrigen noch nicht begonnen.
+      return index === 0 ? [prize, { status: 'in_bearbeitung' as const, answers: demoAnswers(sections, company, city, upTo), step: upTo, savedAt: at }] : [prize, undefined]
+    }).filter(([, value]) => value),
+  )
+  const applicationDocs = Object.fromEntries(APPLICATION_DOCS.slice(0, docs).map((doc) => [doc.key, { ...DEMO_FILES[doc.key], uploadedAt: at }]))
+  const done = complete && docs === APPLICATION_DOCS.length
+  return {
+    application: done ? 'eingereicht' : 'in_bearbeitung',
+    prizes: sortPrizes(prizes),
+    questionnaires,
+    applicationDocs,
+    ...(done ? { applicationCompletedAt: at } : {}),
+  }
+}
 
 /** Standardbesetzung der Demo: A–C in Jury 1, D und E in Jury 2. */
 export const DEMO_JURY_ASSIGNMENT = (): ProcessState['assigned'] => ({ jury1: ['a', 'b', 'c'], jury2: ['d', 'e'] })
@@ -174,19 +212,16 @@ function sampleSubmissions(includeNewedge: boolean): Submission[] {
     sampleSubmission('demo-donau', 'eigenbewerbung', 'Donau Werkzeugbau AG', 'Ingolstadt', '2026-10-06T11:40:00.000Z', 'BMP-D3W8RN', {
       review: 'geprueft',
       payment: 'zahlung_eingegangen',
-      questionnaire: 'in_bearbeitung',
       deadline: '2027-02-15',
-      questionnaireStep: 1,
-      answers: demoAnswers('Donau Werkzeugbau AG', 'Ingolstadt', 1),
+      ...demoApplication('Donau Werkzeugbau AG', 'Ingolstadt', '2026-10-20T09:00:00.000Z', { upTo: 1, docs: 2 }),
     }),
     sampleSubmission('demo-franken', 'eigenbewerbung', 'Frankenkeramik Manufaktur GmbH', 'Bamberg', '2026-10-03T16:10:00.000Z', 'BMP-F6K2PZ', {
       review: 'geprueft',
       payment: 'zahlung_eingegangen',
-      questionnaire: 'eingereicht',
       jury: 'jury1',
       assigned: DEMO_JURY_ASSIGNMENT(),
       jury1: { b: 'ja', c: 'vielleicht' },
-      answers: demoAnswers('Frankenkeramik Manufaktur GmbH', 'Bamberg', undefined, ['bmp', 'roland_berger']),
+      ...demoApplication('Frankenkeramik Manufaktur GmbH', 'Bamberg', '2026-10-12T15:00:00.000Z', { prizes: ['bmp', 'roland_berger'] }),
     }),
     sampleSubmission(
       'demo-alpen',
@@ -198,13 +233,12 @@ function sampleSubmissions(includeNewedge: boolean): Submission[] {
       {
         review: 'geprueft',
         payment: 'zahlung_eingegangen',
-        questionnaire: 'eingereicht',
         jury: 'abgeschlossen',
         assigned: DEMO_JURY_ASSIGNMENT(),
         jury1: { a: 'ja', b: 'ja', c: 'ja' },
         jury2: { d: 9, e: 8 },
         result: 'einladung',
-        answers: demoAnswers('Alpenländische Feinkost- und Spezialitäten-Vertriebsgesellschaft mbH & Co. KG', 'Garmisch-Partenkirchen'),
+        ...demoApplication('Alpenländische Feinkost- und Spezialitäten-Vertriebsgesellschaft mbH & Co. KG', 'Garmisch-Partenkirchen', '2026-10-08T10:00:00.000Z'),
       },
     ),
   ]
@@ -252,12 +286,17 @@ export function withSeed<T extends PortalData>(state: T): T {
   })
   const knownJurors = new Set((state.jurors ?? []).map((juror) => juror.id))
   const jurors = [...(state.jurors ?? []), ...demoJurors().filter((juror) => !knownJurors.has(juror.id))]
-  return { ...state, accounts, submissions, jurors, roundSettings: state.roundSettings ?? defaultRoundSettings() }
+  // Fragebögen der Preise: fehlende aus der Ausgangsfassung ergänzen, geänderte der Verwaltung behalten.
+  const knownPrizes = new Set((state.questionnaires ?? []).map((definition) => definition.prize))
+  const questionnaires = [...(state.questionnaires ?? []), ...seedDefinitions(SEED_AT).filter((definition) => !knownPrizes.has(definition.prize))]
+  return { ...state, accounts, submissions, jurors, questionnaires, roundSettings: state.roundSettings ?? defaultRoundSettings() }
 }
+
+const SEED_AT = '2026-10-01T08:00:00.000Z'
 
 /** Frischer Demo-Bestand. */
 export const seedData = (): PortalData =>
-  withSeed({ accounts: [], submissions: [], jurors: [], round: 'anmeldung_offen', roundSettings: defaultRoundSettings() })
+  withSeed({ accounts: [], submissions: [], jurors: [], questionnaires: [], round: 'anmeldung_offen', roundSettings: defaultRoundSettings() })
 
 /** Übrige Jurybewertungen der laufenden Stufe ergänzen (Demo: „Übrige Stimmen simulieren“). */
 export function simulateRemainingVotes(process: ProcessState): Pick<ProcessState, 'jury1' | 'jury2'> {
@@ -278,21 +317,17 @@ export function simulateRemainingVotes(process: ProcessState): Pick<ProcessState
 
 export type ScenarioId = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8
 
-export const SCENARIOS: Array<{ id: ScenarioId; title: string; hint: string }> = [
-  { id: 1, title: 'Neue Anmeldung', hint: 'Phase 01 · Neu eingegangen' },
-  { id: 2, title: 'Anmeldung in Prüfung', hint: 'Phase 01 · In Prüfung' },
-  { id: 3, title: 'Fragebogen freigegeben', hint: 'Phase 02 · Fragebogen verfügbar' },
-  { id: 4, title: 'Fragebogen in Bearbeitung', hint: 'Phase 02 · In Bearbeitung' },
-  { id: 5, title: 'Fragebogen eingereicht', hint: 'Phase 02 · Eingereicht' },
-  { id: 6, title: 'Juryprüfung', hint: 'Phase 03 · In Juryprüfung' },
-  { id: 7, title: 'Gala-Einladung', hint: 'Phase 04 · Einladung liegt vor' },
-  { id: 8, title: 'Keine Einladung', hint: 'Phase 04 · Verfahren abgeschlossen' },
+/** Szenarien je Baustein – die Demo-Steuerung zeigt nur die der gewählten Ausbaustufe. */
+export const SCENARIOS: Array<{ id: ScenarioId; title: string; hint: string; feature: Feature }> = [
+  { id: 1, title: 'Neue Anmeldung', hint: 'Phase 01 · Neu eingegangen', feature: 'anmeldung' },
+  { id: 2, title: 'Anmeldung in Prüfung', hint: 'Phase 01 · In Prüfung', feature: 'anmeldung' },
+  { id: 3, title: 'Bewerbung freigeschaltet', hint: 'Phase 02 · Preise, Fragebögen, Unterlagen offen', feature: 'bewerbung' },
+  { id: 4, title: 'Bewerbung in Bearbeitung', hint: 'Phase 02 · Fragebogen begonnen, 3 von 6 Unterlagen', feature: 'bewerbung' },
+  { id: 5, title: 'Bewerbung eingereicht', hint: 'Phase 02 · Fragebogen und alle Unterlagen', feature: 'bewerbung' },
+  { id: 6, title: 'Juryprüfung', hint: 'Phase 03 · In Juryprüfung', feature: 'jury' },
+  { id: 7, title: 'Gala-Einladung', hint: 'Phase 04 · Einladung liegt vor', feature: 'jury' },
+  { id: 8, title: 'Keine Einladung', hint: 'Phase 04 · Verfahren abgeschlossen', feature: 'jury' },
 ]
-
-const sampleAnswers = (complete: boolean): QuestionnaireAnswers => ({
-  ...demoAnswers('NEWEDGE', 'München', complete ? undefined : 3),
-  ...(complete ? { __confirmed: 'ja' } : {}),
-})
 
 /** Setzt einen Vorgang in den Zustand eines Demo-Szenarios (nur Frontend). */
 export function processForScenario(id: ScenarioId, base: ProcessState, at: string): ProcessState {
@@ -304,30 +339,24 @@ export function processForScenario(id: ScenarioId, base: ProcessState, at: strin
     case 2:
       return { ...reset, review: 'in_pruefung', log: log('Anmeldung in Prüfung') }
     case 3:
-      return { ...reset, review: 'geprueft', payment: 'zahlung_eingegangen', questionnaire: 'verfuegbar', deadline: '2027-02-15', log: log('Fragebogen freigegeben') }
+      return { ...reset, review: 'geprueft', payment: 'zahlung_eingegangen', application: 'verfuegbar', deadline: '2027-02-15', log: log('Bewerbung freigeschaltet') }
     case 4:
       return {
         ...reset,
         review: 'geprueft',
         payment: 'zahlung_eingegangen',
-        questionnaire: 'in_bearbeitung',
         deadline: '2027-02-15',
-        answers: sampleAnswers(false),
-        questionnaireStep: 3,
-        questionnaireSavedAt: at,
-        log: log('Fragebogen in Bearbeitung'),
+        ...demoApplication('NEWEDGE', 'München', at, { upTo: 3, docs: 3 }),
+        log: log('Bewerbung in Bearbeitung'),
       }
     case 5:
       return {
         ...reset,
         review: 'geprueft',
         payment: 'zahlung_eingegangen',
-        questionnaire: 'eingereicht',
         deadline: '2027-02-15',
-        answers: sampleAnswers(true),
-        questionnaireStep: 7,
-        questionnaireSubmittedAt: at,
-        log: log('Fragebogen eingereicht'),
+        ...demoApplication('NEWEDGE', 'München', at),
+        log: log('Bewerbung eingereicht'),
       }
     case 6:
       return {
@@ -366,9 +395,9 @@ export function scenarioOf(process: ProcessState): ScenarioId | null {
   if (process.result === 'einladung') return 7
   if (process.jury === 'jury1') return 6
   if (process.jury !== 'nicht_zugewiesen') return null
-  if (process.questionnaire === 'eingereicht') return 5
-  if (process.questionnaire === 'in_bearbeitung') return 4
-  if (process.questionnaire === 'verfuegbar') return 3
+  if (process.application === 'eingereicht') return 5
+  if (process.application === 'in_bearbeitung') return 4
+  if (process.application === 'verfuegbar') return 3
   if (process.review === 'in_pruefung') return 2
   if (process.review === 'neu') return 1
   return null

@@ -74,7 +74,7 @@ export type RoundStatus = 'vorbereitung' | 'anmeldung_offen' | 'anmeldung_geschl
 export type RoundSettings = {
   /** Anmeldeschluss (YYYY-MM-DD), wird Bewerbern angezeigt. */
   registrationDeadline: string
-  /** Standardfrist für Fragebögen (YYYY-MM-DD), Vorschlag beim Freigeben. */
+  /** Standardfrist für die Bewerbung (YYYY-MM-DD), Vorschlag beim Freigeben. */
   questionnaireDeadline: string
 }
 
@@ -109,7 +109,69 @@ export type NominationData = {
   relationship: string
 }
 
-/** Antworten des Bewerbungsfragebogens: Feld-ID → Wert. Felder und Formate: `domain/questionnaire.ts`. */
+/* ── Preise und ihre Fragebögen ──────────────────────────────────────────── */
+
+/** Die drei Auszeichnungen. Bezeichnungen und Beschreibung: `PRIZES` in `domain/questionnaire.ts`. */
+export type PrizeId = 'bmp' | 'roland_berger' | 'future_award'
+
+export type FieldType = 'text' | 'textarea' | 'select' | 'integer' | 'year' | 'zip' | 'email' | 'tel' | 'url' | 'money'
+
+/** Eine Frage. `id` ist innerhalb eines Fragebogens eindeutig und bleibt nach dem Freischalten unverändert. */
+export type QuestionField = {
+  id: string
+  label: string
+  type: FieldType
+  required?: boolean
+  /** Verbindliches Antwortformat, am Feld angezeigt. */
+  format?: string
+  options?: ReadonlyArray<{ value: string; label: string }>
+  maxLength?: number
+  placeholder?: string
+  /** Breite im Raster: ganze Zeile oder halbe Zeile. */
+  span?: 'full' | 'half'
+  /** Zwischenüberschrift vor diesem Feld. */
+  group?: string
+  /** Gemeinsame Formatvorgabe unter der Zwischenüberschrift (gilt für die ganze Gruppe). */
+  groupNote?: string
+}
+
+/** Bewertungskriterium mit Leitfrage, Erläuterung und Orientierungsfragen (Abschnitte des BMP-Fragebogens). */
+export type Criterion = {
+  number: number
+  title: string
+  lead: string
+  description: string
+  guidance: string[]
+}
+
+/** Ein Abschnitt = ein Schritt im Fragebogen. */
+export type QuestionSection = {
+  id: string
+  /** Kurzname in der Schrittleiste. */
+  step: string
+  heading: string
+  intro?: string
+  criterion?: Criterion
+  fields: QuestionField[]
+}
+
+/** `entwurf`: nur die Verwaltung sieht und bearbeitet ihn. `freigeschaltet`: Bewerber können ihn ausfüllen. */
+export type DefinitionStatus = 'entwurf' | 'freigeschaltet'
+
+/**
+ * Der Fragebogen eines Preises – von der Verwaltung bearbeitet und freigeschaltet (Befehle `questionnaireDef.*`).
+ * Nach dem Freischalten bleiben Abschnitte, Felder, Antwortformate und Pflichtangaben fest, damit gespeicherte Antworten
+ * zu den Fragen passen; Texte lassen sich weiter korrigieren.
+ */
+export type QuestionnaireDefinition = {
+  prize: PrizeId
+  status: DefinitionStatus
+  sections: QuestionSection[]
+  updatedAt: string
+  releasedAt?: string
+}
+
+/** Antworten eines Fragebogens: Feld-ID → Wert. Felder und Formate stehen in der `QuestionnaireDefinition`. */
 export type QuestionnaireAnswers = Record<string, string>
 
 /**
@@ -139,7 +201,31 @@ export type Submission = {
 
 export type ReviewStatus = 'neu' | 'in_pruefung' | 'rueckfrage' | 'geprueft'
 export type PaymentStatus = 'keine_rechnung' | 'rechnung_offen' | 'zahlung_eingegangen'
-export type QuestionnaireStatus = 'gesperrt' | 'verfuegbar' | 'in_bearbeitung' | 'eingereicht'
+/**
+ * Stand der Bewerbung als Ganzes (Fragebögen aller gewählten Preise und Bewerbungsunterlagen): gesperrt bis zur Freigabe
+ * durch die Verwaltung, dann `verfuegbar`, ab der ersten Angabe `in_bearbeitung`, `eingereicht`, sobald alles vollständig
+ * ist (`applicationProgress` in `domain/application.ts`).
+ */
+export type ApplicationStatus = 'gesperrt' | 'verfuegbar' | 'in_bearbeitung' | 'eingereicht'
+
+/** Fragebogen eines Preises innerhalb eines Vorgangs. Fehlt der Eintrag, ist für diesen Preis noch nichts gespeichert. */
+export type PrizeQuestionnaire = {
+  status: 'in_bearbeitung' | 'eingereicht'
+  answers: QuestionnaireAnswers
+  /** Zuletzt erreichter Abschnitt (nur für „Fortsetzen“). */
+  step: number
+  savedAt?: string
+  submittedAt?: string
+}
+
+/** Die sechs festen Bewerbungsunterlagen. Bezeichnungen und erlaubte Formate: `APPLICATION_DOCS` in `domain/application.ts`. */
+export type AppDocKey = 'praesentation' | 'jahresabschluss' | 'kennzahlen' | 'handelsregister' | 'organigramm' | 'referenzen'
+
+/**
+ * Eine hochgeladene Datei. Prototyp: nur Name und Größe – im echten System zusätzlich eine Referenz auf die gespeicherte
+ * Datei (z. B. Payload-Media-ID), über die Jury und Verwaltung sie öffnen.
+ */
+export type UploadedFile = { fileName: string; size: number; uploadedAt: string }
 export type JuryStage = 'nicht_zugewiesen' | 'zugewiesen' | 'jury1' | 'jury2' | 'abgeschlossen'
 /** `vorbereitet` ist intern: Bewerber sehen bis zur Freigabe weiterhin „ausstehend“ (`domain/visibility.ts`). */
 export type ResultStatus = 'ausstehend' | 'vorbereitet' | 'einladung' | 'keine_einladung'
@@ -159,9 +245,17 @@ export type LogEntry = { at: string; text: string; by?: string }
 export type ProcessState = {
   review: ReviewStatus
   payment: PaymentStatus
-  questionnaire: QuestionnaireStatus
-  /** Frist für den Fragebogen (YYYY-MM-DD), leer = keine Frist gesetzt. */
+  application: ApplicationStatus
+  /** Frist für die Bewerbung (YYYY-MM-DD), leer = keine Frist gesetzt. */
   deadline: string
+  /** Gewählte Preise (einer oder mehrere), in der Reihenfolge von `PRIZES`. */
+  prizes: PrizeId[]
+  /** Fragebogen je Preis. Einträge abgewählter Preise bleiben als Entwurf erhalten, zählen aber nicht. */
+  questionnaires: Partial<Record<PrizeId, PrizeQuestionnaire>>
+  /** Bewerbungsunterlagen je Platz – austauschbar bis zur Zuweisung an die Jury. */
+  applicationDocs: Partial<Record<AppDocKey, UploadedFile>>
+  /** Zeitpunkt, zu dem die Bewerbung vollständig war (alle Fragebögen und Unterlagen). */
+  applicationCompletedAt?: string
   jury: JuryStage
   /** Zugewiesene Jurymitglieder je Jury-Art (IDs). */
   assigned: { jury1: string[]; jury2: string[] }
@@ -170,11 +264,6 @@ export type ProcessState = {
   /** Punkte der Jury 2 (1–10) je Jurymitglied. Vertraulich. */
   jury2: Record<string, number>
   result: ResultStatus
-  answers: QuestionnaireAnswers
-  /** Zuletzt erreichter Abschnitt des Fragebogens (nur für „Fortsetzen“). */
-  questionnaireStep: number
-  questionnaireSavedAt?: string
-  questionnaireSubmittedAt?: string
   /** Gewinnerunterlagen & Medien – erst nach Anforderung durch die Verwaltung (nur bei Einladung). */
   documents?: { requestedAt: string; items: Record<DocKey, DocItem> }
   /** Interner Verlauf (nur Verwaltung). */
@@ -188,6 +277,8 @@ export type PortalData = {
   accounts: Account[]
   submissions: Submission[]
   jurors: Juror[]
+  /** Je Preis ein Fragebogen (drei Einträge). */
+  questionnaires: QuestionnaireDefinition[]
   round: RoundStatus
   roundSettings: RoundSettings
 }
@@ -242,15 +333,16 @@ export const emptyNominationData = (): NominationData => ({
 export const initialProcess = (): ProcessState => ({
   review: 'neu',
   payment: 'keine_rechnung',
-  questionnaire: 'gesperrt',
+  application: 'gesperrt',
   deadline: '',
+  prizes: [],
+  questionnaires: {},
+  applicationDocs: {},
   jury: 'nicht_zugewiesen',
   assigned: { jury1: [], jury2: [] },
   jury1: {},
   jury2: {},
   result: 'ausstehend',
-  answers: {},
-  questionnaireStep: 0,
   log: [],
 })
 

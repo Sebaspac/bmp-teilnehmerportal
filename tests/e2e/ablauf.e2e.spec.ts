@@ -15,13 +15,16 @@ import {
 } from '../helpers/portal'
 
 // Kerndurchlauf: NEWEDGE durch alle vier Phasen – jeder Verwaltungsschritt wird in der Bewerbersicht gegengeprüft.
-// Use Cases 3–7 der Testanleitung.
+// Die Bewerbung besteht aus je einem Fragebogen pro gewähltem Preis und sechs Unterlagen. Use Cases 3–7 der Testanleitung.
+
+/** Testdatei für das Hochladen – Inhalt egal, der Prototyp speichert nur Name und Größe. */
+const file = (name: string) => ({ name, mimeType: 'application/octet-stream', buffer: Buffer.from(`Testinhalt ${name}`) })
 
 test.describe('Teilnehmerportal: Ablauf eines Vorgangs', () => {
   test('NEWEDGE von der Anmeldung bis zur Einladung', async ({ page }) => {
     test.setTimeout(240_000)
     const s = sheet(page)
-    const releaseButton = s.getByRole('button', { name: 'Fragebogen freigeben', exact: true })
+    const releaseButton = s.getByRole('button', { name: 'Bewerbung freigeben', exact: true })
 
     await test.step('Phase 01: neue Anmeldung', async () => {
       await page.goto(`${PORTAL}/anmelden`)
@@ -78,26 +81,26 @@ test.describe('Teilnehmerportal: Ablauf eines Vorgangs', () => {
       await expect(s.getByRole('button', { name: 'Freigegeben', exact: true })).toBeVisible()
       await openApplicantView(page)
       await expect(currentPhase(page)).toContainText('Fragebogen wird freigeschaltet')
-      await expect(s.getByRole('button', { name: 'Fragebogen bearbeiten' }).first()).toBeVisible()
+      await expect(s).toContainText('Bewerbung freigeschaltet')
+      await expect(s.getByRole('button', { name: 'Zur Bewerbung' })).toBeVisible()
     })
 
-    await test.step('Fragebogen: Preiswahl, Formate, Einreichen', async () => {
-      await s.getByRole('button', { name: 'Fragebogen bearbeiten' }).first().click()
+    await test.step('Bewerbung: Preiswahl und Fragebogen zum Mittelstandspreis', async () => {
+      await s.getByRole('button', { name: 'Zur Bewerbung' }).click()
+      await s.getByRole('button', { name: 'Preise wählen' }).click()
+      await page.waitForURL(/\/preise$/)
       await expect(s).toContainText('Für welche Preise bewerben Sie sich?')
-      // Die Preiswahl steht als Einstieg in der URL (für Zurück/Vor) – erst danach weiter.
-      await expect(page).toHaveURL(/preise=1/)
-      await s.getByRole('button', { name: 'Weiter zum Fragebogen' }).click()
+      // Der Future Award ist noch im Entwurf – „Fragebogen folgt“.
+      await expect(s.locator('label', { hasText: 'Bavarian Future Award' })).toContainText('Fragebogen folgt')
+      await s.getByRole('button', { name: 'Auswahl speichern' }).click()
       await expect(s).toContainText('Bitte wählen Sie mindestens einen Preis')
       await s.getByText('Roland-Berger-Zukunftspreis', { exact: true }).click()
-      await s.getByRole('button', { name: 'Weiter zum Fragebogen' }).click()
-      await expect(s).toContainText('Der Fragebogen für den Roland-Berger-Zukunftspreis folgt')
-      await expect(page).toHaveURL(/schritt=0/)
-      await s.getByRole('button', { name: 'Auswahl ändern' }).click()
-      await expect(s.getByRole('checkbox', { name: /Roland-Berger/ })).toBeChecked()
       await s.getByText('Bayerischer Mittelstandspreis', { exact: true }).click()
-      await s.getByRole('button', { name: 'Weiter zum Fragebogen' }).click()
+      await s.getByRole('button', { name: 'Auswahl speichern' }).click()
+      // Danach direkt in den ersten offenen Fragebogen – je Preis ein eigener.
+      await page.waitForURL(/\/fragebogen\/bmp$/)
+      await expect(s).toContainText('NEWEDGE · Bayerischer Mittelstandspreis')
       await expect(s).toContainText('Gewählte Preise: Bayerischer Mittelstandspreis, Roland-Berger-Zukunftspreis')
-      await expect(s).toContainText('Für den Roland-Berger-Zukunftspreis folgt ein eigener Fragebogen')
       await expect(s.getByLabel('Name des Unternehmens')).toHaveValue('NEWEDGE')
 
       await s.getByLabel('Branche').selectOption('M')
@@ -140,15 +143,50 @@ test.describe('Teilnehmerportal: Ablauf eines Vorgangs', () => {
       }
 
       await expect(s).toContainText('12,5 Mio. €')
-      await expect(s).toContainText('Ausgewählte Preise')
       await s.getByRole('button', { name: 'Fragebogen einreichen' }).click()
       await expect(s).toContainText('Bitte bestätigen Sie Ihre Angaben')
       await s.getByRole('checkbox').check()
       await s.getByRole('button', { name: 'Fragebogen einreichen' }).click()
       await expect(s).toContainText('Simulierte Einreichung')
+      // Die Bewerbung ist erst vollständig mit dem zweiten Fragebogen und den Unterlagen.
+      await expect(s).toContainText('Für die vollständige Bewerbung fehlt noch: Fragebogen Roland-Berger-Zukunftspreis, 6 Unterlagen')
       await s.getByRole('button', { name: 'Zurück zum Vorgang' }).last().click()
       await page.waitForURL(/\/portal\/vorgang\/demo-newedge-vorgang$/)
-      await expect(s).toContainText('Fragebogen eingereicht')
+      await expect(s).toContainText('Ihre Bewerbung ist in Bearbeitung')
+      await expect(s).toContainText('Fragebögen 1 von 2 eingereicht · Unterlagen 0 von 6')
+    })
+
+    await test.step('Bewerbung: zweiter Fragebogen und sechs Unterlagen', async () => {
+      await s.getByRole('button', { name: /Ausfüllen\s*:\s*Fragebogen Roland-Berger/ }).click()
+      await page.waitForURL(/\/fragebogen\/roland_berger$/)
+      await s.getByLabel(/Welche Vision verfolgt/).fill('Beispieltext: Vision.')
+      await s.getByLabel('Planungshorizont Ihrer Strategie').selectOption('5 bis 10 Jahre')
+      await s.getByRole('button', { name: 'Weiter', exact: true }).click()
+      await s.getByLabel(/Mit welchen Projekten/).fill('Beispieltext: Projekte.')
+      await s.getByLabel(/Investitionen in Zukunftsprojekte/).fill('0,8')
+      await s.getByRole('button', { name: 'Weiter', exact: true }).click()
+      await s.getByRole('checkbox').check()
+      await s.getByRole('button', { name: 'Fragebogen einreichen' }).click()
+      await expect(s).toContainText('Für die vollständige Bewerbung fehlt noch: 6 Unterlagen')
+      await s.getByRole('button', { name: 'Zurück zum Vorgang' }).last().click()
+      await page.waitForURL(/\/portal\/vorgang\/demo-newedge-vorgang$/)
+
+      const uploads = s.locator('#vorgang-bewerbung input[type="file"]')
+      await expect(uploads).toHaveCount(6)
+      // Andere Formate lehnt das Portal schon vor dem Hochladen ab.
+      await uploads.nth(0).setInputFiles(file('programm.exe'))
+      await expect(s).toContainText('Dieses Format wird nicht angenommen')
+      const names = ['Praesentation.pptx', 'Jahresabschluesse.pdf', 'Kennzahlen.xlsx', 'Handelsregister.pdf', 'Organigramm.png', 'Referenz.docx']
+      for (const [index, name] of names.entries()) {
+        await uploads.nth(index).setInputFiles(file(name))
+        await expect(s).toContainText(name)
+      }
+      await expect(s).toContainText('Excel')
+      await expect(s).toContainText('Word')
+      await expect(s).toContainText('Bewerbung eingereicht')
+      await expect(s).toContainText('Fragebögen 2 von 2 eingereicht · Unterlagen 6 von 6')
+      // Bis zur Juryprüfung lassen sich Dateien austauschen.
+      await expect(s.getByText('Austauschen').first()).toBeVisible()
     })
 
     await test.step('Phase 03: Jury 1 und Jury 2, vertraulich', async () => {
@@ -160,8 +198,13 @@ test.describe('Teilnehmerportal: Ablauf eines Vorgangs', () => {
       const juryItem = page.locator('li', { hasText: 'NEWEDGE' }).first()
       await juryItem.getByText('Ja', { exact: true }).click()
       await expect(juryItem).toContainText('Bewertung gespeichert')
-      await juryItem.getByText('Fragebogen lesen').click()
+      // Alle sechs Unterlagen des Unternehmens stehen offen, die Fragebögen beider Preise lassen sich aufklappen.
+      await expect(juryItem).toContainText('Unterlagen (6)')
+      await expect(juryItem).toContainText('Kennzahlen.xlsx')
+      await expect(juryItem).toContainText('Referenz.docx')
+      await juryItem.getByText('Fragebögen lesen (2)').click()
       await expect(juryItem).toContainText('12,5 Mio. €')
+      await expect(juryItem).toContainText('Fragebogen: Roland-Berger-Zukunftspreis')
       await expect(juryItem).toContainText('Bayerischer Mittelstandspreis, Roland-Berger-Zukunftspreis')
 
       await page.goto(`${PORTAL}/admin`)
@@ -201,8 +244,9 @@ test.describe('Teilnehmerportal: Ablauf eines Vorgangs', () => {
       await expect(s).toContainText('Vielen Dank für Ihre Teilnahme')
       await expect(s).not.toContainText('Einladung ansehen')
 
-      await runScenario(page, /Fragebogen in Bearbeitung/)
-      await expect(s).toContainText('Fragebogen fortsetzen')
+      await runScenario(page, /Bewerbung in Bearbeitung/)
+      await expect(s).toContainText('Bewerbung fortsetzen')
+      await expect(s).toContainText('Unterlagen 3 von 6')
     })
   })
 
@@ -279,8 +323,10 @@ test.describe('Teilnehmerportal: Ablauf eines Vorgangs', () => {
     await expectNoHorizontalOverflow(page)
     await openApplicantView(page)
     await expect(currentPhase(page)).toContainText('Anmeldung läuft')
-    await runScenario(page, /Fragebogen freigegeben/)
-    await sheet(page).getByRole('button', { name: 'Fragebogen bearbeiten' }).first().click()
+    await runScenario(page, /Bewerbung freigeschaltet/)
+    await sheet(page).getByRole('button', { name: 'Zur Bewerbung' }).click()
+    await expectNoHorizontalOverflow(page)
+    await sheet(page).getByRole('button', { name: 'Preise wählen' }).click()
     await expect(sheet(page)).toContainText('Für welche Preise bewerben Sie sich?')
     await expectNoHorizontalOverflow(page)
   })

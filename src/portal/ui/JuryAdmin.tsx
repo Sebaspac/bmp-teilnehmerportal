@@ -16,7 +16,7 @@ import styles from '@/portal/ui/portal.module.css'
 type Navigate = (path: string) => void
 
 /** Fragebögen, die einer Jury vorgelegt werden können: eingereicht. */
-const juryCases = (state: PortalSnapshot) => submittedSubmissions(state).filter((submission) => submission.process.questionnaire === 'eingereicht')
+const juryCases = (state: PortalSnapshot) => submittedSubmissions(state).filter((submission) => submission.process.application === 'eingereicht')
 
 /** Stand eines Jurymitglieds: zugewiesene Fragebögen, davon bearbeitet und offen. */
 export function jurorStats(state: PortalSnapshot, juror: Juror) {

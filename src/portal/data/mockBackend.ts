@@ -12,16 +12,19 @@
 
 import { applyCommand, authorize, COMMAND_SPEC, type CommandContext, type PortalCommand } from '@/portal/domain/commands'
 import { actorOf, type Actor } from '@/portal/domain/permissions'
-import { CONFIRM_KEY, PRIZE_KEY } from '@/portal/domain/questionnaire'
+import { CONFIRM_KEY, PRIZE_IDS, sortPrizes } from '@/portal/domain/questionnaire'
+import { parseStage, type Stage } from '@/portal/domain/release'
 import { normalizeEmail } from '@/portal/domain/selectors'
 import { processForScenario, seedData, simulateRemainingVotes, withSeed, type ScenarioId } from '@/portal/domain/seed'
-import { defaultRoundSettings, emptyProfile, initialProcess, type Account, type PortalSnapshot, type Submission } from '@/portal/domain/types'
+import { defaultRoundSettings, emptyProfile, initialProcess, type Account, type PortalSnapshot, type PrizeId, type ProcessState, type Submission } from '@/portal/domain/types'
 import type { CommandResponse, DemoControls, LoginResult, PortalBackend, RegisterResult } from '@/portal/data/backend'
 
 const STORAGE_KEY = 'bmp-teilnehmerportal-prototyp'
+/** Ausbaustufe der Vorführung (Demo-Steuerung) – getrennt von den Daten, damit „Zurücksetzen“ sie nicht verändert. */
+const STAGE_KEY = 'bmp-teilnehmerportal-ausbaustufe'
 
-/** Gespeichertes Format (Version 2 seit dem Vier-Phasen-Modell). */
-type Stored = PortalSnapshot & { version: 2 }
+/** Gespeichertes Format (Version 3 seit den Fragebögen je Preis und den Bewerbungsunterlagen). */
+type Stored = PortalSnapshot & { version: 3 }
 
 /* ── Hilfen ──────────────────────────────────────────────────────────────── */
 
@@ -33,13 +36,14 @@ const randomId = () =>
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const randomCode = (length: number) => Array.from({ length }, () => ALPHABET[Math.floor(Math.random() * ALPHABET.length)]).join('')
 
-const context: CommandContext = {
+const context = (stage: Stage): CommandContext => ({
   now,
   newId: randomId,
   newReference: () => `BMP-${randomCode(6)}`,
   // Erzeugtes Demo-Passwort (wird im Prototyp nur angezeigt, nicht versendet).
   newPassword: (kind) => `${kind}-${randomCode(6).toLowerCase()}`,
-}
+  stage,
+})
 
 /** Nur damit kein Klartext-Passwort im Browser liegt – keine Sicherheitsfunktion. */
 async function hashPassword(email: string, password: string) {
@@ -64,32 +68,54 @@ function demoPerspective(actor: Actor, command: PortalCommand) {
 
 /* ── Speicher und Migration ──────────────────────────────────────────────── */
 
-const fresh = (): Stored => ({ version: 2, sessionAccountId: null, ...seedData() })
+const fresh = (): Stored => ({ version: 3, sessionAccountId: null, ...seedData() })
 
-/** Antworten von vor der Preiswahl gehören zum Bayerischen Mittelstandspreis (damals der einzige Fragebogen). */
-function withPrize(submission: Submission): Submission {
-  const { answers } = submission.process
-  const started = Object.keys(answers).some((key) => key !== CONFIRM_KEY)
-  if (!started || answers[PRIZE_KEY]) return submission
-  return { ...submission, process: { ...submission.process, answers: { ...answers, [PRIZE_KEY]: 'bmp' } } }
+/** Version 2 → 3: ein Fragebogen mit Preiswahl („__prize“) wird zu Fragebögen je Preis; Unterlagen beginnen leer. */
+type ProcessV2 = Omit<ProcessState, 'application' | 'prizes' | 'questionnaires' | 'applicationDocs'> & {
+  questionnaire: ProcessState['application']
+  answers?: Record<string, string>
+  questionnaireStep?: number
+  questionnaireSavedAt?: string
+  questionnaireSubmittedAt?: string
+}
+
+function fromV2(process: ProcessV2): ProcessState {
+  const { questionnaire, answers = {}, questionnaireStep = 0, questionnaireSavedAt, questionnaireSubmittedAt, ...rest } = process
+  const { __prize: rawPrizes = '', ...ownAnswers } = answers
+  const started = Object.keys(ownAnswers).some((key) => key !== CONFIRM_KEY)
+  // Antworten von vor der Preiswahl gehören zum Bayerischen Mittelstandspreis (damals der einzige Fragebogen).
+  const prizes = sortPrizes(rawPrizes ? (rawPrizes.split(',').filter((id) => PRIZE_IDS.includes(id as PrizeId)) as PrizeId[]) : started ? ['bmp'] : [])
+  const submitted = questionnaire === 'eingereicht'
+  return {
+    ...rest,
+    application: questionnaire,
+    prizes,
+    questionnaires: started
+      ? { bmp: { status: submitted ? 'eingereicht' : 'in_bearbeitung', answers: ownAnswers, step: questionnaireStep, savedAt: questionnaireSavedAt, submittedAt: questionnaireSubmittedAt } }
+      : {},
+    applicationDocs: {},
+    ...(submitted ? { applicationCompletedAt: questionnaireSubmittedAt } : {}),
+  }
 }
 
 /** Daten früherer Prototyp-Stände übernehmen. Version 1 (vor dem Vier-Phasen-Modell): Jeder Vorgang beginnt in Phase 01. */
 function migrate(raw: unknown): Stored {
   const parsed = raw as { version?: number } & Partial<Stored>
+  if (parsed?.version === 3) return withSeed(parsed as Stored)
   if (parsed?.version === 2) {
-    const current = parsed as Stored
-    return withSeed({ ...current, submissions: current.submissions.map(withPrize) })
+    const submissions = ((parsed.submissions ?? []) as unknown as Array<Omit<Submission, 'process'> & { process: ProcessV2 }>).map((submission) => ({ ...submission, process: fromV2(submission.process) }))
+    return withSeed({ ...(parsed as Stored), version: 3, submissions, questionnaires: [] })
   }
   if (parsed?.version === 1) {
     return withSeed({
-      version: 2,
+      version: 3,
       accounts: parsed.accounts || [],
       sessionAccountId: parsed.sessionAccountId ?? null,
       submissions: ((parsed.submissions || []) as Submission[]).map((submission) => ({ ...submission, process: initialProcess() })),
       round: 'anmeldung_offen',
       roundSettings: defaultRoundSettings(),
       jurors: [],
+      questionnaires: [],
     })
   }
   return fresh()
@@ -97,9 +123,26 @@ function migrate(raw: unknown): Stored {
 
 /* ── Backend ─────────────────────────────────────────────────────────────── */
 
-export function createMockBackend(): PortalBackend & { demo: DemoControls } {
+/** `configuredStage`: Ausbaustufe aus der Einstellung; die Demo-Steuerung kann sie für die Vorführung überschreiben. */
+export function createMockBackend(configuredStage: Stage): PortalBackend & { demo: DemoControls } {
   let state: Stored | null = null
   const listeners = new Set<() => void>()
+  const stageListeners = new Set<() => void>()
+  let stageOverride: Stage | null | undefined
+
+  const readStage = (): Stage | null => {
+    try {
+      const raw = window.localStorage.getItem(STAGE_KEY)
+      return raw ? parseStage(raw) : null
+    } catch {
+      return null
+    }
+  }
+  const currentStage = (): Stage => {
+    if (typeof window === 'undefined') return configuredStage
+    if (stageOverride === undefined) stageOverride = readStage()
+    return stageOverride ?? configuredStage
+  }
 
   const read = (): Stored => {
     try {
@@ -137,6 +180,10 @@ export function createMockBackend(): PortalBackend & { demo: DemoControls } {
       listeners.add(listener)
       // Änderungen aus anderen Tabs desselben Browsers (z. B. Verwaltung und Bewerber nebeneinander).
       const onStorage = (event: StorageEvent) => {
+        if (event.key === STAGE_KEY) {
+          stageOverride = readStage()
+          stageListeners.forEach((item) => item())
+        }
         if (event.key !== STORAGE_KEY) return
         state = read()
         listener()
@@ -180,7 +227,7 @@ export function createMockBackend(): PortalBackend & { demo: DemoControls } {
       const denied = authorize(snapshot, sessionActor, command)
       if (denied && !demoPerspective(sessionActor, command)) return { ok: false, error: denied }
       // Im Perspektivwechsel handelt die Demo ohne Konto (kein Verlaufseintrag „von“ einem fremden Konto).
-      const outcome = applyCommand(snapshot, denied ? { kind: 'anonymous' } : sessionActor, command, context)
+      const outcome = applyCommand(snapshot, denied ? { kind: 'anonymous' } : sessionActor, command, context(currentStage()))
       if (!outcome.ok) return { ok: false, error: outcome.error }
       write({ ...snapshot, ...outcome.data })
       return { ok: true, result: outcome.result }
@@ -208,6 +255,21 @@ export function createMockBackend(): PortalBackend & { demo: DemoControls } {
       },
       reset() {
         write(fresh())
+      },
+      stage: currentStage,
+      setStage(stage) {
+        stageOverride = stage
+        try {
+          if (stage) window.localStorage.setItem(STAGE_KEY, stage)
+          else window.localStorage.removeItem(STAGE_KEY)
+        } catch {
+          // Ohne Speicher gilt die Wahl nur in diesem Tab.
+        }
+        stageListeners.forEach((listener) => listener())
+      },
+      subscribeStage(listener) {
+        stageListeners.add(listener)
+        return () => stageListeners.delete(listener)
       },
     },
   }

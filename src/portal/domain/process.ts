@@ -8,21 +8,32 @@
  * Reines TypeScript, auch serverseitig nutzbar (z. B. für E-Mail-Texte oder Exporte).
  */
 
-import { prizesOf } from '@/portal/domain/questionnaire'
+import { applicationProgress } from '@/portal/domain/application'
+import { PRIZE_IDS, prizeById } from '@/portal/domain/questionnaire'
+import { DEFAULT_STAGE, PHASE_FEATURE, hasFeature, type Stage } from '@/portal/domain/release'
 import {
   DOC_KEYS,
+  type ApplicationStatus,
   type DocKey,
   type DocStatus,
   type JuryStage,
   type JuryType,
   type PaymentStatus,
+  type PrizeId,
   type ProcessState,
-  type QuestionnaireStatus,
   type ResultStatus,
   type ReviewStatus,
   type RoundStatus,
   type SubmissionType,
 } from '@/portal/domain/types'
+
+/**
+ * Rahmen für die Ableitungen: Ausbaustufe (`domain/release.ts`) und Preise mit freigeschaltetem Fragebogen
+ * (`releasedPrizes`). Ohne Angabe: Gesamtversion, alle Fragebögen freigeschaltet.
+ */
+export type ProcessContext = { stage?: Stage; released?: readonly PrizeId[] }
+
+const contextOf = (ctx: ProcessContext = {}) => ({ stage: ctx.stage ?? DEFAULT_STAGE, released: ctx.released ?? PRIZE_IDS })
 
 /* ── Gewinnerunterlagen & Medienstatus ─────────────────────────────────── */
 
@@ -62,14 +73,14 @@ export const PHASES: Array<{ number: PhaseNumber; title: string; short: string; 
     number: 1,
     title: 'Anmeldung läuft',
     short: 'Anmeldung',
-    summary: 'Die Anmeldung ist eingegangen und wird geprüft. Ein Fragebogen ist noch nicht nötig.',
+    summary: 'Die Anmeldung ist eingegangen und wird geprüft. Fragebögen und Unterlagen sind noch nicht nötig.',
   },
   {
     number: 2,
     title: 'Fragebogen wird freigeschaltet',
     short: 'Fragebogen',
     summary:
-      'Nach der Prüfung folgt die Rechnung über die Teilnahmegebühr, bei einer Fremdnominierung an das vorgeschlagene Unternehmen. Nach Zahlungseingang wird der Bewerbungsfragebogen freigeschaltet.',
+      'Nach der Prüfung folgt die Rechnung über die Teilnahmegebühr, bei einer Fremdnominierung an das vorgeschlagene Unternehmen. Nach Zahlungseingang wird die Bewerbung freigeschaltet: je Preis ein Fragebogen und sechs Unterlagen.',
   },
   {
     number: 3,
@@ -84,6 +95,9 @@ export const PHASES: Array<{ number: PhaseNumber; title: string; short: string; 
     summary: 'Es wird mitgeteilt, ob eine Einladung zur Gala vorliegt.',
   },
 ]
+
+/** Die Hauptphasen, die es in einer Ausbaustufe gibt (A: nur 01, A + B: 01–02, ab A + B + C: alle). */
+export const phasesIn = (stage: Stage) => PHASES.filter((phase) => hasFeature(stage, PHASE_FEATURE[phase.number]))
 
 /* ── Ebene B: Detailstatus mit Bedeutung ─────────────────────────────────── */
 
@@ -110,8 +124,8 @@ export type ApplicantView = {
   /** Ebene C: Was als Nächstes passiert und ob der Bewerber handeln muss. */
   next: { label: string; mustAct: boolean; action?: NextActionKind; deadline?: string }
   steps: Array<{ number: PhaseNumber; title: string; state: StepState; note: string }>
-  /** hidden = bei Fremdnominierung: Inhalte gehören dem Unternehmen, die vorschlagende Person sieht nur den Stand. */
-  questionnaireAccess: 'locked' | 'open' | 'readonly' | 'handover' | 'hidden'
+  /** Zugang zur Bewerbung (Fragebögen und Unterlagen). hidden = bei Fremdnominierung: Inhalte gehören dem Unternehmen, die vorschlagende Person sieht nur den Stand. */
+  applicationAccess: 'locked' | 'open' | 'readonly' | 'handover' | 'hidden'
   /** Sichtbare Zusatzhinweise (z. B. Demo-Übergabe bei Fremdnominierung). */
   demoNote?: string
 }
@@ -120,11 +134,10 @@ export type NextActionKind =
   | 'viewRegistration'
   | 'checkCompanyData'
   | 'viewPayment'
-  | 'editQuestionnaire'
-  | 'viewQuestionnaire'
+  | 'editApplication'
+  | 'viewApplication'
   | 'viewInvitation'
   | 'demoHandover'
-  | 'changePrizes'
   | 'uploadDocuments'
 
 
@@ -138,32 +151,46 @@ export function phaseOf(process: ProcessState): PhaseNumber {
 
 const NOMINATOR_RESULT_NOTE = 'Demo-Annahme: Ob vorschlagende Personen das Ergebnis erfahren, ist noch nicht entschieden.'
 
-/** Gewählte Preise, für die es (noch) keinen Fragebogen gibt – und keiner mit Fragebogen. */
-export function onlyPendingPrizes(process: ProcessState) {
-  const prizes = prizesOf(process.answers)
-  return process.questionnaire !== 'eingereicht' && prizes.length > 0 && !prizes.some((prize) => prize.hasQuestionnaire)
+/** Wartet die Bewerbung nur noch darauf, dass die Verwaltung Fragebögen gewählter Preise freischaltet? */
+export function waitingForDefinitions(process: ProcessState, released: readonly PrizeId[]) {
+  if (process.application === 'gesperrt' || process.application === 'eingereicht') return []
+  const progress = applicationProgress(process, released)
+  return progress.open.length === 0 && progress.docs.uploaded === progress.docs.total ? progress.waiting : []
 }
 
-/** Warum der Fragebogen gerade gesperrt ist – immer die tatsächlich offene Voraussetzung, passend zur Zeitleiste. */
-export function questionnaireLockReason(process: ProcessState, kind: SubmissionType | null): string {
+/** „den A“ bzw. „den A und den B“ – für Sätze über Preise. */
+export const prizeList = (prizes: readonly PrizeId[]) => prizes.map((prize) => `den ${prizeById(prize).title}`).join(' und ')
+
+/** Warum die Bewerbung gerade gesperrt ist – immer die tatsächlich offene Voraussetzung, passend zur Zeitleiste. */
+export function applicationLockReason(process: ProcessState, kind: SubmissionType | null): string {
   if (kind === 'fremdvorschlag') return 'Geht nach der Prüfung an das vorgeschlagene Unternehmen, nicht an Sie (Demo-Annahme).'
   if (process.review !== 'geprueft') return 'Wird nach der Prüfung Ihrer Anmeldung und dem Eingang der Teilnahmegebühr freigeschaltet.'
   if (process.payment === 'rechnung_offen') return 'Wird freigeschaltet, sobald Ihre Zahlung eingegangen ist.'
-  if (process.payment === 'zahlung_eingegangen') return 'Ihre Zahlung ist eingegangen. Die Geschäftsstelle schaltet den Fragebogen in Kürze frei.'
-  return 'Ihre Anmeldung ist geprüft. Nach Rechnung und Zahlungseingang wird der Fragebogen freigeschaltet.'
+  if (process.payment === 'zahlung_eingegangen') return 'Ihre Zahlung ist eingegangen. Die Geschäftsstelle schaltet die Bewerbung in Kürze frei.'
+  return 'Ihre Anmeldung ist geprüft. Nach Rechnung und Zahlungseingang wird die Bewerbung freigeschaltet.'
 }
 
-/** Bewerberansicht – zeigt nie interne Jury-Details, Notizen oder vorbereitete (nicht freigegebene) Ergebnisse. */
-export function applicantView(process: ProcessState, kind: SubmissionType | null, company = ''): ApplicantView {
-  const phase = phaseOf(process)
+/**
+ * Bewerberansicht – zeigt nie interne Jury-Details, Notizen oder vorbereitete (nicht freigegebene) Ergebnisse.
+ * `ctx`: Ausbaustufe und freigeschaltete Fragebögen; die Phasen enden mit der letzten Phase der Stufe.
+ */
+export function applicantView(process: ProcessState, kind: SubmissionType | null, company = '', ctx?: ProcessContext): ApplicantView {
+  const { stage, released } = contextOf(ctx)
+  const phases = phasesIn(stage)
+  const realPhase = phaseOf(process)
+  const phase = Math.min(realPhase, phases[phases.length - 1].number) as PhaseNumber
   const isNomination = kind === 'fremdvorschlag'
   // Bei einer Fremdnominierung ist es nicht „Ihr Unternehmen“, sondern das vorgeschlagene.
   const subject = isNomination ? company || 'das vorgeschlagene Unternehmen' : 'Ihr Unternehmen'
+  const withJury = hasFeature(stage, 'jury')
   let view: Omit<ApplicantView, 'steps' | 'phase'>
 
-  if (phase === 1) {
+  if (realPhase === 1) {
     // Bei einer Fremdnominierung endet die Aufgabe der vorschlagenden Person mit dem Vorschlag.
     const what = isNomination ? 'Ihre Fremdnominierung' : 'Ihre Anmeldung'
+    const after = hasFeature(stage, 'bewerbung')
+      ? 'Danach erhalten Sie die Rechnung über die Teilnahmegebühr; nach Zahlungseingang wird Ihre Bewerbung freigeschaltet.'
+      : 'Danach informieren wir Sie über die nächsten Schritte.'
     if (process.review === 'rueckfrage') {
       // Im Portal gibt es (noch) keine Nachrichten: Die Geschäftsstelle meldet sich direkt – ein Wartezustand, keine Sackgasse.
       view = {
@@ -171,7 +198,7 @@ export function applicantView(process: ProcessState, kind: SubmissionType | null
         title: 'Anmeldung läuft',
         description: `Die Geschäftsstelle hat eine Rückfrage zu ${isNomination ? 'Ihrer Fremdnominierung' : 'Ihrer Anmeldung'} und meldet sich per E-Mail oder Telefon bei Ihnen. Danach wird die Prüfung fortgesetzt.`,
         next: { label: 'Die Geschäftsstelle meldet sich mit ihrer Rückfrage', mustAct: false, action: 'viewRegistration' },
-        questionnaireAccess: 'locked',
+        applicationAccess: 'locked',
       }
     } else if (process.review === 'in_pruefung') {
       view = {
@@ -179,9 +206,9 @@ export function applicantView(process: ProcessState, kind: SubmissionType | null
         title: 'Anmeldung läuft',
         description: isNomination
           ? `${what} für ${subject} wird derzeit geprüft. Danach wird das Unternehmen informiert. Für Sie ist nichts weiter zu tun.`
-          : 'Ihre Anmeldung wird derzeit geprüft. Danach erhalten Sie die Rechnung über die Teilnahmegebühr; nach Zahlungseingang wird der Bewerbungsfragebogen freigeschaltet.',
+          : `Ihre Anmeldung wird derzeit geprüft. ${after}`,
         next: { label: 'Auf Prüfung warten', mustAct: false, action: 'viewRegistration' },
-        questionnaireAccess: 'locked',
+        applicationAccess: 'locked',
       }
     } else {
       view = {
@@ -189,42 +216,55 @@ export function applicantView(process: ProcessState, kind: SubmissionType | null
         title: 'Anmeldung läuft',
         description: isNomination
           ? `${what} für ${subject} ist eingegangen. Die Geschäftsstelle prüft sie und informiert anschließend das Unternehmen. Für Sie ist nichts weiter zu tun.`
-          : 'Ihre Anmeldung ist eingegangen. Derzeit prüfen wir die Angaben. Danach erhalten Sie die Rechnung über die Teilnahmegebühr; nach Zahlungseingang wird der Bewerbungsfragebogen freigeschaltet.',
+          : `Ihre Anmeldung ist eingegangen. Derzeit prüfen wir die Angaben. ${after}`,
         next: { label: 'Auf Prüfung warten', mustAct: false, action: 'viewRegistration' },
-        questionnaireAccess: 'locked',
+        applicationAccess: 'locked',
       }
     }
-  } else if (phase === 2) {
-    if (isNomination && process.questionnaire !== 'eingereicht') {
+  } else if (!hasFeature(stage, 'bewerbung')) {
+    // Ausbaustufe A: Mit der Prüfung endet der Ablauf im Portal; die nächsten Schritte kündigt die Geschäftsstelle an.
+    view = {
+      status: { label: 'Anmeldung geprüft', tone: 'abgeschlossen' },
+      title: 'Anmeldung geprüft',
+      description: isNomination
+        ? `Ihre Fremdnominierung für ${subject} ist geprüft. Für Sie ist nichts weiter zu tun.`
+        : 'Ihre Anmeldung ist geprüft. Über die nächsten Schritte – Rechnung und Bewerbung – informieren wir Sie per E-Mail.',
+      next: { label: 'Auf Nachricht der Geschäftsstelle warten', mustAct: false, action: 'viewRegistration' },
+      applicationAccess: 'locked',
+    }
+  } else if (realPhase === 2 || !withJury) {
+    const progress = applicationProgress(process, released)
+    const waiting = waitingForDefinitions(process, released)
+    if (isNomination && process.application !== 'eingereicht') {
       view =
-        process.questionnaire === 'gesperrt'
+        process.application === 'gesperrt'
           ? {
               status: { label: process.payment === 'keine_rechnung' ? 'Unternehmen wird informiert' : 'Unternehmen informiert', tone: 'wartend' },
               title: 'Fragebogen wird freigeschaltet',
               description:
                 process.payment === 'keine_rechnung'
-                  ? `Ihre Fremdnominierung ist geprüft. Als Nächstes wird ${subject} informiert und erhält den Bewerbungsfragebogen. Sie müssen nichts weiter tun.`
-                  : `Ihre Fremdnominierung ist geprüft. ${subject} ist informiert und erhält Rechnung und Bewerbungsfragebogen. Sie müssen nichts weiter tun.`,
+                  ? `Ihre Fremdnominierung ist geprüft. Als Nächstes wird ${subject} informiert und erhält die Bewerbungsunterlagen. Sie müssen nichts weiter tun.`
+                  : `Ihre Fremdnominierung ist geprüft. ${subject} ist informiert und erhält Rechnung und Bewerbungsunterlagen. Sie müssen nichts weiter tun.`,
               next: { label: 'Auf das Unternehmen warten', mustAct: false },
-              questionnaireAccess: 'handover',
-              demoNote: 'Demo-Annahme: Rechnung und Fragebogen gehen bei einer Fremdnominierung an das vorgeschlagene Unternehmen. Die Zuständigkeit ist noch nicht entschieden.',
+              applicationAccess: 'handover',
+              demoNote: 'Demo-Annahme: Rechnung und Bewerbung gehen bei einer Fremdnominierung an das vorgeschlagene Unternehmen. Die Zuständigkeit ist noch nicht entschieden.',
             }
           : {
               status: { label: 'Beim vorgeschlagenen Unternehmen', tone: 'wartend' },
               title: 'Fragebogen wird freigeschaltet',
-              description: `Der Bewerbungsfragebogen liegt bei ${subject}. Sie müssen nichts weiter tun.`,
+              description: `Die Bewerbung liegt bei ${subject}. Sie müssen nichts weiter tun.`,
               next: { label: 'Auf das Unternehmen warten', mustAct: false, action: 'demoHandover' },
-              questionnaireAccess: 'handover',
-              demoNote: 'Demo-Zustand: Wer den Fragebogen bei einer Fremdnominierung ausfüllt, ist noch nicht entschieden.',
+              applicationAccess: 'handover',
+              demoNote: 'Demo-Zustand: Wer die Bewerbung bei einer Fremdnominierung ausfüllt, ist noch nicht entschieden.',
             }
-    } else if (process.questionnaire === 'gesperrt') {
+    } else if (process.application === 'gesperrt') {
       if (process.payment === 'rechnung_offen') {
         view = {
           status: { label: 'Rechnung offen', tone: 'aktion' },
           title: 'Fragebogen wird freigeschaltet',
-          description: 'Ihre Anmeldung ist geprüft. Für die Teilnahme liegt eine Rechnung vor. Nach dem Zahlungseingang wird der Bewerbungsfragebogen freigeschaltet.',
+          description: 'Ihre Anmeldung ist geprüft. Für die Teilnahme liegt eine Rechnung vor. Nach dem Zahlungseingang wird Ihre Bewerbung freigeschaltet.',
           next: { label: 'Rechnung begleichen', mustAct: true, action: 'viewPayment' },
-          questionnaireAccess: 'locked',
+          applicationAccess: 'locked',
         }
       } else {
         view = {
@@ -232,60 +272,70 @@ export function applicantView(process: ProcessState, kind: SubmissionType | null
           title: 'Fragebogen wird freigeschaltet',
           description:
             process.payment === 'zahlung_eingegangen'
-              ? 'Ihre Zahlung ist eingegangen. Der Bewerbungsfragebogen wird in Kürze für Sie freigeschaltet.'
-              : 'Ihre Anmeldung ist geprüft. Wir bereiten den nächsten Schritt vor und informieren Sie, sobald der Bewerbungsfragebogen freigeschaltet ist.',
+              ? 'Ihre Zahlung ist eingegangen. Ihre Bewerbung wird in Kürze freigeschaltet.'
+              : 'Ihre Anmeldung ist geprüft. Wir bereiten den nächsten Schritt vor und informieren Sie, sobald Ihre Bewerbung freigeschaltet ist.',
           next: { label: 'Auf Freigabe warten', mustAct: false },
-          questionnaireAccess: 'locked',
+          applicationAccess: 'locked',
         }
       }
-    } else if (process.questionnaire === 'eingereicht') {
+    } else if (process.application === 'eingereicht') {
       view = {
-        status: { label: 'Fragebogen eingereicht', tone: 'abgeschlossen' },
-        title: 'Fragebogen eingereicht',
-        description: isNomination
-          ? `Der Bewerbungsfragebogen für ${subject} ist eingegangen. Als Nächstes wird er der Jury zur Bewertung vorgelegt.`
-          : 'Ihr Bewerbungsfragebogen ist eingegangen. Als Nächstes wird er der Jury zur Bewertung vorgelegt; Sie müssen nichts weiter tun.',
-        next: isNomination ? { label: 'Juryprüfung abwarten', mustAct: false } : { label: 'Juryprüfung abwarten', mustAct: false, action: 'viewQuestionnaire' },
-        questionnaireAccess: isNomination ? 'hidden' : 'readonly',
+        status: { label: 'Bewerbung eingereicht', tone: 'abgeschlossen' },
+        title: 'Bewerbung eingereicht',
+        description: withJury
+          ? isNomination
+            ? `Die Bewerbung von ${subject} ist vollständig eingegangen. Als Nächstes wird sie der Jury zur Bewertung vorgelegt.`
+            : 'Ihre Bewerbung ist vollständig eingegangen. Als Nächstes wird sie der Jury zur Bewertung vorgelegt; Sie müssen nichts weiter tun.'
+          : 'Ihre Bewerbung ist vollständig eingegangen. Über die weiteren Schritte informieren wir Sie per E-Mail.',
+        next: {
+          label: withJury ? 'Juryprüfung abwarten' : 'Auf Nachricht der Geschäftsstelle warten',
+          mustAct: false,
+          action: isNomination ? undefined : 'viewApplication',
+        },
+        applicationAccess: isNomination ? 'hidden' : 'readonly',
       }
-    } else if (onlyPendingPrizes(process)) {
-      // Nur Preise gewählt, für die noch kein Fragebogen hinterlegt ist: nichts zu tun, keine Frist.
-      const titles = prizesOf(process.answers).map((prize) => prize.title)
+    } else if (waiting.length > 0) {
+      // Alles erledigt bis auf Fragebögen, die die Verwaltung noch nicht freigeschaltet hat: nichts zu tun.
       view = {
         status: { label: 'Fragebogen folgt', tone: 'wartend' },
         title: 'Fragebogen folgt',
-        description: `Für ${titles.map((title) => `den ${title}`).join(' und ')} ist noch kein Fragebogen hinterlegt. Sobald er vorliegt, informieren wir Sie. Ihre Preisauswahl können Sie bis dahin ändern.`,
-        next: { label: 'Auf den Fragebogen warten', mustAct: false, action: 'changePrizes' },
-        questionnaireAccess: 'open',
+        description: `Für ${prizeList(waiting)} ist noch kein Fragebogen freigeschaltet. Alles andere ist vollständig; sobald der Fragebogen vorliegt, informieren wir Sie. Ihre Preisauswahl können Sie bis dahin ändern.`,
+        next: { label: 'Auf den Fragebogen warten', mustAct: false, action: 'editApplication' },
+        applicationAccess: 'open',
       }
-    } else if (process.questionnaire === 'in_bearbeitung') {
+    } else if (process.application === 'in_bearbeitung') {
       view = {
         status: { label: 'In Bearbeitung', tone: 'bearbeitung' },
-        title: 'Ihr Bewerbungsfragebogen ist in Bearbeitung',
-        description: 'Sie haben mit dem Bewerbungsfragebogen begonnen. Ihre Angaben sind zwischengespeichert; reichen Sie ihn ein, wenn alles vollständig ist.',
-        next: { label: 'Fragebogen fortsetzen', mustAct: true, action: 'editQuestionnaire', deadline: process.deadline },
-        questionnaireAccess: 'open',
+        title: 'Ihre Bewerbung ist in Bearbeitung',
+        description:
+          progress.chosen === 0
+            ? 'Wählen Sie die Preise, für die Sie sich bewerben. Ihre Angaben sind zwischengespeichert.'
+            : `Ihre Angaben sind zwischengespeichert. Fragebögen: ${progress.submitted} von ${progress.chosen} eingereicht · Unterlagen: ${progress.docs.uploaded} von ${progress.docs.total} hochgeladen. Die Bewerbung ist eingereicht, sobald alles vollständig ist.`,
+        next: { label: 'Bewerbung fortsetzen', mustAct: true, action: 'editApplication', deadline: process.deadline },
+        applicationAccess: 'open',
       }
     } else {
       view = {
-        status: { label: 'Fragebogen verfügbar', tone: 'freigeschaltet' },
-        title: 'Ihr Bewerbungsfragebogen ist freigeschaltet',
-        description: 'Wählen Sie die Preise, für die Sie sich bewerben – einen oder mehrere –, und füllen Sie anschließend den Bewerbungsfragebogen aus.',
-        next: { label: 'Fragebogen bearbeiten', mustAct: true, action: 'editQuestionnaire', deadline: process.deadline },
-        questionnaireAccess: 'open',
+        status: { label: 'Bewerbung freigeschaltet', tone: 'freigeschaltet' },
+        title: 'Ihre Bewerbung ist freigeschaltet',
+        description:
+          'Wählen Sie die Preise, für die Sie sich bewerben – einen oder mehrere. Je Preis füllen Sie einen Fragebogen aus; dazu laden Sie sechs Unterlagen hoch (PDF, Word, Excel und weitere Formate).',
+        next: { label: 'Bewerbung starten', mustAct: true, action: 'editApplication', deadline: process.deadline },
+        applicationAccess: 'open',
       }
     }
-  } else if (phase === 3) {
+  } else if (realPhase === 3) {
     view = {
       status: process.jury === 'zugewiesen' ? { label: 'Juryprüfung ausstehend', tone: 'wartend' } : { label: 'In Juryprüfung', tone: 'wartend' },
       title: 'Auditsitzung der Jury',
       description: isNomination
-        ? `Die Bewerbungsunterlagen von ${subject} werden im Rahmen des Juryverfahrens bewertet.`
-        : 'Die eingereichten Bewerbungsunterlagen werden im Rahmen des Juryverfahrens bewertet.',
-      next: isNomination ? { label: 'Juryentscheidung abwarten', mustAct: false } : { label: 'Juryentscheidung abwarten', mustAct: false, action: 'viewQuestionnaire' },
-      questionnaireAccess: isNomination ? 'hidden' : 'readonly',
+        ? `Die Bewerbung von ${subject} wird im Rahmen des Juryverfahrens bewertet.`
+        : 'Ihre eingereichte Bewerbung wird im Rahmen des Juryverfahrens bewertet.',
+      next: isNomination ? { label: 'Juryentscheidung abwarten', mustAct: false } : { label: 'Juryentscheidung abwarten', mustAct: false, action: 'viewApplication' },
+      applicationAccess: isNomination ? 'hidden' : 'readonly',
     }
   } else if (process.result === 'einladung') {
+    const docs = documentsProgress(process)
     view = {
       status: { label: 'Einladung liegt vor', tone: 'einladung' },
       title: 'Einladung zur Gala',
@@ -295,10 +345,10 @@ export function applicantView(process: ProcessState, kind: SubmissionType | null
       // Die Einladung gilt dem Unternehmen; die vorschlagende Person sieht nur den Stand, nicht den Brief.
       next: isNomination
         ? { label: 'Die Einladung ist an das Unternehmen gegangen', mustAct: false }
-        : documentsProgress(process).requested && documentsProgress(process).open > 0
+        : hasFeature(stage, 'gewinnerunterlagen') && docs.requested && docs.open > 0
           ? { label: 'Unterlagen für Gala und Presse einreichen', mustAct: true, action: 'uploadDocuments' }
           : { label: 'Einladung ansehen', mustAct: true, action: 'viewInvitation' },
-      questionnaireAccess: isNomination ? 'hidden' : 'readonly',
+      applicationAccess: isNomination ? 'hidden' : 'readonly',
       demoNote: isNomination ? NOMINATOR_RESULT_NOTE : undefined,
     }
   } else if (process.result === 'keine_einladung') {
@@ -309,7 +359,7 @@ export function applicantView(process: ProcessState, kind: SubmissionType | null
         ? 'Das Auswahlverfahren ist abgeschlossen. Für das vorgeschlagene Unternehmen ist keine Einladung vorgesehen. Vielen Dank für Ihren Vorschlag.'
         : 'Das aktuelle Auswahlverfahren ist abgeschlossen. Vielen Dank für Ihre Teilnahme.',
       next: { label: 'Keine weiteren Schritte', mustAct: false },
-      questionnaireAccess: isNomination ? 'hidden' : 'readonly',
+      applicationAccess: isNomination ? 'hidden' : 'readonly',
       demoNote: isNomination ? NOMINATOR_RESULT_NOTE : undefined,
     }
   } else {
@@ -321,28 +371,30 @@ export function applicantView(process: ProcessState, kind: SubmissionType | null
         ? `Die Juryprüfung ist abgeschlossen. Die Entscheidung über eine Einladung zur Gala für ${subject} steht noch aus.`
         : 'Die Juryprüfung ist abgeschlossen. Wir informieren Sie, sobald die Entscheidung über eine Einladung zur Gala vorliegt.',
       next: { label: 'Entscheidung abwarten', mustAct: false },
-      questionnaireAccess: isNomination ? 'hidden' : 'readonly',
+      applicationAccess: isNomination ? 'hidden' : 'readonly',
     }
   }
 
-  return { ...view, phase, steps: phaseSteps(process, phase, view.status.label) }
+  // Ende der Stufe erreicht (z. B. Stufe A nach der Prüfung): Die letzte Phase gilt als abgeschlossen.
+  const endOfStage = realPhase > phase || (!withJury && process.application === 'eingereicht')
+  return { ...view, phase, steps: phaseSteps(process, phase, view.status.label, phases, endOfStage) }
 }
 
-function phaseSteps(process: ProcessState, phase: PhaseNumber, currentLabel: string): ApplicantView['steps'] {
+function phaseSteps(process: ProcessState, phase: PhaseNumber, currentLabel: string, phases: typeof PHASES, endOfStage: boolean): ApplicantView['steps'] {
   const doneNote: Record<PhaseNumber, string> = {
     1: 'Anmeldung geprüft',
-    2: 'Fragebogen eingereicht',
+    2: 'Bewerbung eingereicht',
     3: 'Juryprüfung abgeschlossen',
     4: '',
   }
   const upcomingNote: Record<PhaseNumber, string> = {
     1: '',
     2: 'Noch nicht freigeschaltet',
-    3: process.questionnaire === 'eingereicht' ? 'Folgt in Kürze' : 'Folgt nach dem Fragebogen',
+    3: process.application === 'eingereicht' ? 'Folgt in Kürze' : 'Folgt nach der Bewerbung',
     4: 'Entscheidung ausstehend',
   }
-  return PHASES.map(({ number, title }) => {
-    if (number < phase) return { number, title, state: 'done' as const, note: doneNote[number] }
+  return phases.map(({ number, title }) => {
+    if (number < phase || (number === phase && endOfStage)) return { number, title, state: 'done' as const, note: doneNote[number] || currentLabel }
     if (number > phase) return { number, title, state: 'upcoming' as const, note: upcomingNote[number] }
     // Phasenname bleibt der offizielle; der Ausgang steht in der Notiz.
     if (number === 4 && process.result === 'keine_einladung') return { number, title, state: 'closed' as const, note: 'Keine Einladung · Verfahren abgeschlossen' }
@@ -363,19 +415,23 @@ export const PARTY_LABEL: Record<Party, string> = {
 }
 
 /** Ebene C für die Verwaltung: Wer ist am Zug und was ist zu tun? Gleiche Begriffe wie die Steuerung im Vorgang. */
-export function adminNext(process: ProcessState, kind: SubmissionType | null = null): { label: string; party: Party } {
+export function adminNext(process: ProcessState, kind: SubmissionType | null = null, ctx?: ProcessContext): { label: string; party: Party } {
+  const { stage, released } = contextOf(ctx)
   // Bei einer Fremdnominierung handelt nach der Prüfung das vorgeschlagene Unternehmen, nicht die vorschlagende Person.
   const applicant: Party = kind === 'fremdvorschlag' ? 'unternehmen' : 'bewerber'
   if (process.review === 'neu') return { label: 'Anmeldung prüfen', party: 'verwaltung' }
   if (process.review === 'in_pruefung') return { label: 'Prüfung abschließen', party: 'verwaltung' }
   if (process.review === 'rueckfrage') return { label: 'Rückfrage klären', party: 'verwaltung' }
-  if (process.questionnaire === 'gesperrt') {
+  if (!hasFeature(stage, 'bewerbung')) return { label: 'Anmeldung geprüft', party: 'niemand' }
+  if (process.application === 'gesperrt') {
     if (process.payment === 'keine_rechnung') return { label: 'Rechnung stellen', party: 'verwaltung' }
     if (process.payment === 'rechnung_offen') return { label: 'Zahlung abwarten', party: applicant }
-    return { label: 'Fragebogen freigeben', party: 'verwaltung' }
+    return { label: 'Bewerbung freigeben', party: 'verwaltung' }
   }
-  if (onlyPendingPrizes(process)) return { label: 'Fragebogen für die gewählten Preise bereitstellen', party: 'verwaltung' }
-  if (process.questionnaire !== 'eingereicht') return { label: 'Fragebogen abwarten', party: applicant }
+  const waiting = waitingForDefinitions(process, released)
+  if (waiting.length) return { label: `Fragebogen freischalten: ${waiting.map((prize) => prizeById(prize).short).join(', ')}`, party: 'verwaltung' }
+  if (process.application !== 'eingereicht') return { label: 'Bewerbung abwarten', party: applicant }
+  if (!hasFeature(stage, 'jury')) return { label: 'Bewerbung eingereicht', party: 'niemand' }
   if (process.jury === 'nicht_zugewiesen') return { label: 'Der Jury zuweisen', party: 'verwaltung' }
   if (process.jury === 'zugewiesen') return { label: 'Jury 1 starten', party: 'verwaltung' }
   if (process.jury === 'jury1' || process.jury === 'jury2') {
@@ -387,6 +443,7 @@ export function adminNext(process: ProcessState, kind: SubmissionType | null = n
   }
   if (process.result === 'einladung') {
     const docs = documentsProgress(process)
+    if (!hasFeature(stage, 'gewinnerunterlagen')) return { label: 'Einladung freigegeben', party: 'niemand' }
     if (!docs.requested) return { label: 'Einladung freigegeben', party: 'niemand' }
     if (docs.submitted > 0) return { label: 'Unterlagen prüfen', party: 'verwaltung' }
     if (docs.open > 0) return { label: 'Unterlagen abwarten', party: applicant }
@@ -400,7 +457,7 @@ export const REVIEW_LABEL: Record<ReviewStatus, string> = {
   neu: 'Neu eingegangen',
   in_pruefung: 'In Prüfung',
   rueckfrage: 'Rückfrage erforderlich',
-  geprueft: 'Geprüft · für Fragebogen vorgemerkt',
+  geprueft: 'Geprüft · für Bewerbung vorgemerkt',
 }
 
 export const PAYMENT_LABEL: Record<PaymentStatus, string> = {
@@ -409,7 +466,7 @@ export const PAYMENT_LABEL: Record<PaymentStatus, string> = {
   zahlung_eingegangen: 'Zahlung als eingegangen markiert',
 }
 
-export const QUESTIONNAIRE_LABEL: Record<QuestionnaireStatus, string> = {
+export const APPLICATION_LABEL: Record<ApplicationStatus, string> = {
   gesperrt: 'Gesperrt',
   verfuegbar: 'Freigegeben',
   in_bearbeitung: 'In Bearbeitung',
@@ -435,7 +492,7 @@ export const ROUND_LABEL: Record<RoundStatus, string> = {
   vorbereitung: 'Vorbereitung',
   anmeldung_offen: 'Anmeldung geöffnet',
   anmeldung_geschlossen: 'Anmeldung geschlossen',
-  fragebogenphase: 'Fragebogenphase',
+  fragebogenphase: 'Bewerbungsphase',
   juryphase: 'Juryphase',
   abgeschlossen: 'Verfahren abgeschlossen',
 }
@@ -468,6 +525,7 @@ export function juryProgress(process: ProcessState) {
   return { jury1: count('jury1'), jury2: count('jury2') }
 }
 
+/** Voraussetzungen der Freigabe einer Bewerbung (ohne Frist). */
 export const canRelease = (process: ProcessState) => process.review === 'geprueft' && process.payment === 'zahlung_eingegangen'
 
 export function juryTally(process: ProcessState) {

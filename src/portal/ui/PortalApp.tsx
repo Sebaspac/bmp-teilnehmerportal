@@ -37,8 +37,8 @@ import {
 } from 'lucide-react'
 
 import Image from '@/shared/UnoptimizedImage'
-import { AdminOverview, AdminQuestionnaireSheet, AdminVorgangSheet, areaCounts, tabAllowed, type AdminTab } from '@/portal/ui/AdminView'
-import { AppShell, type NavSection } from '@/portal/ui/AppShell'
+import { AdminApplicationSheet, AdminOverview, AdminVorgangSheet, areaCounts, tabAllowed, type AdminTab } from '@/portal/ui/AdminView'
+import { AppShell, PageHeader, type NavSection } from '@/portal/ui/AppShell'
 import { AuthScreen } from '@/portal/ui/AuthScreen'
 import { DemoPanel, type Perspective } from '@/portal/ui/DemoPanel'
 import { cx } from '@/portal/ui/fields'
@@ -47,15 +47,19 @@ import { JurorSheet, NewJurorSheet } from '@/portal/ui/JuryAdmin'
 import { JuryView } from '@/portal/ui/JuryView'
 import { PortalOverview } from '@/portal/ui/PortalOverview'
 import { portalContent } from '@/portal/content/portalContent'
-import { logout, newClientId, portalDemo, usePortalSnapshot } from '@/portal/data/portalClient'
+import { logout, newClientId, portalDemo, usePortalSnapshot, useProcessContext } from '@/portal/data/portalClient'
 import { actorOf, can, viewerRole } from '@/portal/domain/permissions'
 import { JURY_TYPE_LABEL, ROUND_LABEL } from '@/portal/domain/process'
+import { PRIZE_IDS, definitionOf } from '@/portal/domain/questionnaire'
+import { hasFeature } from '@/portal/domain/release'
 import { newedgeSubmission, type ScenarioId } from '@/portal/domain/seed'
 import { accountOf, isProfileComplete, jurorById, registrationOpen, sessionAccount, submissionsFor } from '@/portal/domain/selectors'
-import type { Account, SubmissionType } from '@/portal/domain/types'
+import type { Account, PrizeId, SubmissionType } from '@/portal/domain/types'
 import { visibleTo } from '@/portal/domain/visibility'
 import { CommandErrorNotice } from '@/portal/ui/CommandErrorNotice'
 import { ProfileSheet, type ProfileIntent } from '@/portal/ui/ProfileSheet'
+import { PrizeSheet } from '@/portal/ui/PrizeSheet'
+import { DefinitionEditor } from '@/portal/ui/QuestionnaireAdmin'
 import { QuestionnaireSheet } from '@/portal/ui/QuestionnaireSheet'
 import { SubmissionSheet } from '@/portal/ui/SubmissionSheet'
 import { VorgangSheet } from '@/portal/ui/VorgangSheet'
@@ -69,35 +73,42 @@ type Route =
   | { view: 'new' }
   | { view: 'draft'; id: string }
   | { view: 'vorgang'; id: string }
-  | { view: 'questionnaire'; id: string }
+  | { view: 'prizes'; id: string }
+  /** Ohne Preis (ältere Links): weiter zum ersten gewählten Fragebogen bzw. zur Preiswahl. */
+  | { view: 'questionnaire'; id: string; prize: PrizeId | null }
   | { view: 'help' }
   | { view: 'admin' }
   | { view: 'adminVorgang'; id: string }
   | { view: 'adminJuror'; id: string }
-  | { view: 'adminQuestionnaire'; id: string }
+  | { view: 'adminApplication'; id: string }
+  | { view: 'adminDefinition'; prize: PrizeId }
   | { view: 'jury' }
+
+const asPrize = (value: string | undefined): PrizeId | null => (PRIZE_IDS.includes(value as PrizeId) ? (value as PrizeId) : null)
 
 function parseRoute(pathname: string): Route {
   const parts = pathname.replace(/\/+$/, '').split('/').filter(Boolean).slice(1).map(decodeURIComponent)
-  const [first, second, third] = parts
+  const [first, second, third, fourth] = parts
   if (first === 'anmelden') return { view: 'login' }
   if (first === 'registrieren') return { view: 'register' }
   if (first === 'stammdaten') return { view: 'profile' }
   if (first === 'einreichen') return { view: 'new' }
   if (first === 'einreichung' && second) return { view: 'draft', id: second }
-  if (first === 'vorgang' && second && third === 'fragebogen') return { view: 'questionnaire', id: second }
+  if (first === 'vorgang' && second && third === 'fragebogen') return { view: 'questionnaire', id: second, prize: asPrize(fourth) }
+  if (first === 'vorgang' && second && third === 'preise') return { view: 'prizes', id: second }
   if (first === 'vorgang' && second) return { view: 'vorgang', id: second }
   if (first === 'hilfe') return { view: 'help' }
   if (first === 'admin' && second === 'vorgang' && third) return { view: 'adminVorgang', id: third }
   if (first === 'admin' && second === 'jury' && third) return { view: 'adminJuror', id: third }
-  if (first === 'admin' && second === 'fragebogen' && third) return { view: 'adminQuestionnaire', id: third }
+  if (first === 'admin' && second === 'bewerbung' && third) return { view: 'adminApplication', id: third }
+  if (first === 'admin' && second === 'frageboegen' && asPrize(third)) return { view: 'adminDefinition', prize: asPrize(third)! }
   if (first === 'admin') return { view: 'admin' }
   if (first === 'jury') return { view: 'jury' }
   return { view: 'overview' }
 }
 
 const perspectiveOf = (route: Route): Perspective =>
-  route.view === 'admin' || route.view === 'adminVorgang' || route.view === 'adminJuror' || route.view === 'adminQuestionnaire'
+  route.view === 'admin' || route.view === 'adminVorgang' || route.view === 'adminJuror' || route.view === 'adminApplication' || route.view === 'adminDefinition'
     ? 'admin'
     : route.view === 'jury'
       ? 'jury'
@@ -112,7 +123,7 @@ const newDraftKey = newClientId
 
 /** Ziel nach dem Login (Deep Link, z. B. aus einer späteren E-Mail): nur bekannte Portalbereiche. */
 const loginContinue = (value: string | null) =>
-  value && /^(vorgang\/[\w-]+(\/fragebogen)?|einreichung\/[\w-]+|einreichen|stammdaten|hilfe)$/.test(value) ? value : null
+  value && /^(vorgang\/[\w-]+(\/preise|\/fragebogen(\/[\w-]+)?)?|einreichung\/[\w-]+|einreichen|stammdaten|hilfe)$/.test(value) ? value : null
 
 const asType = (value: string | null): SubmissionType | undefined =>
   value === 'eigenbewerbung' || value === 'fremdvorschlag' ? value : undefined
@@ -151,12 +162,14 @@ const VIEW_TITLE: Record<string, string> = {
   new: 'Neue Anmeldung',
   draft: 'Anmeldung fortsetzen',
   vorgang: 'Vorgang',
-  questionnaire: 'Bewerbungsfragebogen',
+  prizes: 'Preise wählen',
+  questionnaire: 'Fragebogen',
   help: 'Hilfe',
   admin: 'Verwaltung',
   adminVorgang: 'Vorgang (Verwaltung)',
   adminJuror: 'Jurymitglied (Verwaltung)',
-  adminQuestionnaire: 'Fragebogen (Verwaltung)',
+  adminApplication: 'Bewerbung (Verwaltung)',
+  adminDefinition: 'Fragebogen bearbeiten (Verwaltung)',
   jury: 'Jury',
 }
 
@@ -167,6 +180,7 @@ export default function PortalApp() {
   // `snapshot`: alles, was das Backend liefert. Im Prototyp ist das der ganze Bestand, damit die Demo-Steuerung ohne
   // Login zwischen den Ansichten wechseln kann.
   const snapshot = usePortalSnapshot()
+  const ctx = useProcessContext()
   const route = parseRoute(pathname)
   const perspective = perspectiveOf(route)
   // `state`: was die angemeldete Person sehen darf – gefiltert wie im echten Backend (domain/visibility.ts). Nur wenn die
@@ -270,7 +284,8 @@ export default function PortalApp() {
   }
 
   /* ── Demo-Steuerung ── */
-  const currentVorgangId = route.view === 'vorgang' || route.view === 'questionnaire' || route.view === 'adminVorgang' ? route.id : null
+  const currentVorgangId =
+    route.view === 'vorgang' || route.view === 'questionnaire' || route.view === 'prizes' || route.view === 'adminVorgang' || route.view === 'adminApplication' ? route.id : null
 
   const switchPerspective = (next: Perspective) => {
     setDemoOpen(false)
@@ -386,6 +401,20 @@ export default function PortalApp() {
   /* ── Verwaltung & Jury (Demo-Perspektiven ohne Anmeldung) ── */
   // Rolle für Rechte in der Verwaltung: Sachbearbeitung eingeschränkt, sonst (auch ohne Anmeldung) volle Verwaltungsrechte.
   const viewer = viewerRole(account)
+  // Ausbaustufen ohne Jury: keine Juryansicht – Jury-Zugänge sehen einen Hinweis, alle anderen gehen in die Verwaltung.
+  if (perspective === 'jury' && !hasFeature(ctx.stage, 'jury'))
+    return shell(
+      navCopy.juryLabel,
+      [],
+      'jury',
+      account?.role === 'jury' ? (
+        <div className={styles.view}>
+          <PageHeader title={portalContent.jury.title} lead={portalContent.jury.unavailable} />
+        </div>
+      ) : (
+        <Redirect to="/portal/admin" />
+      ),
+    )
   if (perspective === 'jury') {
     return shell(navCopy.juryLabel, [{ items: [{ key: 'jury', label: navCopy.jury, href: '/portal/jury', icon: ClipboardCheck }] }], 'jury', <JuryView state={state} account={account} />)
   }
@@ -401,7 +430,8 @@ export default function PortalApp() {
           submission={submission}
           viewer={viewer}
           onClose={() => router.replace(adminBase)}
-          onOpenQuestionnaire={() => router.push(`/portal/admin/fragebogen/${submission.id}`)}
+          onOpenQuestionnaire={() => router.push(`/portal/admin/bewerbung/${submission.id}`)}
+          onOpenDefinitions={() => router.push('/portal/admin?bereich=frageboegen')}
           onOpenApplicant={
             portalDemo
               ? () => {
@@ -416,11 +446,12 @@ export default function PortalApp() {
         <Redirect to={adminBase} />
       )
     }
-    if (route.view === 'adminQuestionnaire') {
+    if (route.view === 'adminApplication') {
       const submission = state.submissions.find((item) => item.id === route.id && item.status === 'eingereicht')
       page = submission ? (
-        <AdminQuestionnaireSheet
-          key={`fb-${submission.id}`}
+        <AdminApplicationSheet
+          key={`bewerbung-${submission.id}`}
+          state={state}
           submission={submission}
           onClose={() => router.replace(adminBase)}
           onOpenCase={() => router.replace(`/portal/admin/vorgang/${submission.id}${adminTab !== 'uebersicht' ? `?bereich=${adminTab}` : ''}`)}
@@ -429,7 +460,17 @@ export default function PortalApp() {
         <Redirect to={adminBase} />
       )
     }
-    if (route.view === 'adminJuror' && !can(viewer, 'jury')) page = <Redirect to="/portal/admin" />
+    if (route.view === 'adminDefinition') {
+      const definition = definitionOf(state, route.prize)
+      const base = '/portal/admin?bereich=frageboegen'
+      page =
+        definition && tabAllowed(viewer, 'frageboegen', ctx.stage) ? (
+          <DefinitionEditor key={`fragebogen-${route.prize}`} definition={definition} onClose={() => router.replace(base)} />
+        ) : (
+          <Redirect to="/portal/admin" />
+        )
+    }
+    if (route.view === 'adminJuror' && (!can(viewer, 'jury') || !hasFeature(ctx.stage, 'jury'))) page = <Redirect to="/portal/admin" />
     else if (route.view === 'adminJuror') {
       const juryBase = '/portal/admin?bereich=jury'
       const juror = jurorById(state, route.id)
@@ -443,13 +484,13 @@ export default function PortalApp() {
         )
     }
 
-    const activeTab: AdminTab = route.view === 'adminJuror' ? 'jury' : adminTab
-    const counts = areaCounts(state)
+    const activeTab: AdminTab = route.view === 'adminJuror' ? 'jury' : route.view === 'adminDefinition' ? 'frageboegen' : tabAllowed(viewer, adminTab, ctx.stage) ? adminTab : 'uebersicht'
+    const counts = areaCounts(state, ctx)
     const sections = (['arbeit', 'einstellungen'] as const)
       .map((section) => ({
         label: portalContent.admin.navSections[section],
         items: portalContent.admin.tabs
-          .filter((tab) => tab.section === section && tabAllowed(viewer, tab.key))
+          .filter((tab) => tab.section === section && tabAllowed(viewer, tab.key, ctx.stage))
           .map((tab) => ({
             key: tab.key,
             label: tab.label,
@@ -542,9 +583,13 @@ export default function PortalApp() {
     else page = <Redirect to={`/portal/vorgang/${submission.id}`} />
   }
 
-  if (route.view === 'vorgang' || route.view === 'questionnaire') {
+  if (route.view === 'vorgang' || route.view === 'questionnaire' || route.view === 'prizes') {
     const submission = submissions.find((item) => item.id === route.id && item.status === 'eingereicht')
+    const demoHandover = searchParams.get('demo') === 'uebergabe'
+    const demoQuery = demoHandover ? '?demo=uebergabe' : ''
+    const vorgangPath = submission ? `/portal/vorgang/${submission.id}` : '/portal'
     if (!submission) page = <Redirect to="/portal" />
+    else if (route.view !== 'vorgang' && !hasFeature(ctx.stage, 'bewerbung')) page = <Redirect to={vorgangPath} />
     else if (route.view === 'vorgang')
       page = (
         <VorgangSheet
@@ -554,24 +599,34 @@ export default function PortalApp() {
           onClose={closeSheet}
           navigate={navigate}
           initialSection={searchParams.get('abschnitt')}
+          demoHandover={demoHandover}
         />
       )
+    else if (route.view === 'prizes')
+      page = (
+        <PrizeSheet
+          key={`preise-${submission.id}`}
+          submission={submission}
+          demoHandover={demoHandover}
+          onClose={() => router.replace(`${vorgangPath}${demoQuery}`)}
+          onContinue={(prize) => router.replace(prize ? `${vorgangPath}/fragebogen/${prize}${demoQuery}` : `${vorgangPath}${demoQuery}`)}
+        />
+      )
+    else if (!route.prize)
+      page = <Redirect to={submission.process.prizes[0] ? `${vorgangPath}/fragebogen/${submission.process.prizes[0]}${demoQuery}` : `${vorgangPath}/preise${demoQuery}`} />
     else
       page = (
         <QuestionnaireSheet
-          key={`fragebogen-${submission.id}`}
+          key={`fragebogen-${submission.id}-${route.prize}`}
           submission={submission}
           account={account}
-          demoHandover={searchParams.get('demo') === 'uebergabe'}
-          openPrizes={searchParams.get('preise') === '1'}
+          prize={route.prize}
+          definition={definitionOf(state, route.prize)}
+          demoHandover={demoHandover}
           urlStep={urlStep}
           onStepChange={pushStep}
-          onPrizeEntry={() => {
-            const params = new URLSearchParams(searchParams.toString())
-            params.set('preise', '1')
-            router.replace(`${pathname}?${params.toString()}`)
-          }}
-          onClose={() => router.replace(`/portal/vorgang/${submission.id}`)}
+          onChoosePrizes={() => navigate(`${vorgangPath}/preise${demoQuery}`)}
+          onClose={() => router.replace(`${vorgangPath}${demoQuery}`)}
         />
       )
   }
@@ -607,7 +662,8 @@ const AREA_ICONS: Record<AdminTab, LucideIcon> = {
   uebersicht: LayoutDashboard,
   anmeldungen: ClipboardCheck,
   zahlungen: Receipt,
-  fragebogen: FileText,
+  bewerbungen: FolderOpen,
+  frageboegen: FileText,
   jury: Scale,
   ergebnisse: Award,
   unterlagen: FolderUp,
