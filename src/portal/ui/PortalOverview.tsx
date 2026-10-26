@@ -6,9 +6,9 @@ import { AlertCircle, ArrowRight, Building2, Check, CheckCircle2, Clock, Plus, U
 import { cx } from '@/portal/ui/fields'
 import { PageHeader } from '@/portal/ui/AppShell'
 import { PhaseLine, StatusBadge, deadlineText } from '@/portal/ui/PhaseTimeline'
-import { applicantView, type ApplicantView } from '@/portal/domain/process'
+import { applicantView, type ApplicantView, type ProcessContext } from '@/portal/domain/process'
 import { portalContent } from '@/portal/content/portalContent'
-import { runCommand } from '@/portal/data/portalClient'
+import { runCommand, useProcessContext } from '@/portal/data/portalClient'
 import { NOMINATION_REQUIRED_COUNT, SELF_REQUIRED_COUNT } from '@/portal/domain/registration'
 import { isProfileComplete, submissionCompany } from '@/portal/domain/selectors'
 import type { Account, Submission, SubmissionType } from '@/portal/domain/types'
@@ -35,6 +35,7 @@ export function PortalOverview({
   registration: { open: boolean; deadline: string; status: string }
 }) {
   const copy = portalContent.overview
+  const ctx = useProcessContext()
   const profileComplete = isProfileComplete(account.profile)
   const submittedCount = submissions.filter((submission) => submission.status === 'eingereicht').length
   const draftCount = submissions.length - submittedCount
@@ -115,7 +116,7 @@ export function PortalOverview({
           </div>
         ) : (
           <ul className={styles.caseList}>
-            {sortByAction(submissions).map((submission) => (
+            {sortByAction(submissions, ctx).map((submission) => (
               <SubmissionRow key={submission.id} submission={submission} fresh={submission.id === freshId} navigate={navigate} />
             ))}
           </ul>
@@ -172,10 +173,10 @@ function ChecklistItem({ done, label }: { done: boolean; label: string }) {
 }
 
 /** Reihenfolge: zuerst „Ihr Schritt“ (z. B. mit Frist), dann Entwürfe, dann der Rest – sonst bleibt sie erhalten. */
-function sortByAction(list: Submission[]) {
+function sortByAction(list: Submission[], ctx: ProcessContext) {
   const rank = (submission: Submission) => {
     if (submission.status === 'entwurf') return 1
-    return applicantView(submission.process, submission.type, submissionCompany(submission)).next.mustAct ? 0 : 2
+    return applicantView(submission.process, submission.type, submissionCompany(submission), ctx).next.mustAct ? 0 : 2
   }
   return [...list].sort((a, b) => rank(a) - rank(b))
 }
@@ -189,7 +190,8 @@ function SubmissionRow({ submission, fresh, navigate }: { submission: Submission
   const typeLabel = submission.type === 'eigenbewerbung' ? typeCopy.self.title : submission.type === 'fremdvorschlag' ? typeCopy.nomination.title : copy.typeOpen
   const isDraft = submission.status === 'entwurf'
   const titleId = `portal-row-${submission.id}`
-  const view = isDraft ? null : applicantView(submission.process, submission.type, company)
+  const ctx = useProcessContext()
+  const view = isDraft ? null : applicantView(submission.process, submission.type, company, ctx)
   const target = view ? rowTarget(view, submission.id) : null
 
   return (
@@ -305,14 +307,12 @@ function rowTarget(view: ApplicantView, id: string) {
       return { label: labels.checkCompanyData, path: `${base}?abschnitt=anmeldung` }
     case 'viewPayment':
       return { label: labels.viewPayment, path: `${base}?abschnitt=zahlung` }
-    case 'editQuestionnaire':
-      return { label: view.next.label, path: `${base}/fragebogen` }
-    case 'viewQuestionnaire':
-      return { label: labels.viewQuestionnaire, path: `${base}/fragebogen` }
+    case 'editApplication':
+      return { label: view.next.label, path: `${base}?abschnitt=bewerbung` }
+    case 'viewApplication':
+      return { label: labels.viewApplication, path: `${base}?abschnitt=bewerbung` }
     case 'viewInvitation':
       return { label: labels.viewInvitation, path: `${base}?abschnitt=einladung` }
-    case 'changePrizes':
-      return { label: labels.changePrizes, path: `${base}/fragebogen?preise=1` }
     case 'uploadDocuments':
       return { label: labels.uploadDocuments, path: `${base}?abschnitt=unterlagen` }
     default:

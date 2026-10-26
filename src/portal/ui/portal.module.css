@@ -5657,3 +5657,450 @@ button.step:not(:disabled):hover .stepLabel {
     transition: none;
   }
 }
+
+/* ── Bewerbung: Preise, Fragebögen je Preis, sechs Unterlagen ─────────────── */
+
+.applicationBody {
+  display: grid;
+  gap: 22px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.appPart {
+  display: grid;
+  gap: 10px;
+}
+
+.appPartHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.appPartTitle {
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+
+.appPartText {
+  color: var(--text-body);
+}
+
+.appPartCount {
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.appRows {
+  border-top: 1px solid var(--line);
+}
+
+.appRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.appRowText {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.appRowTitle {
+  font-family: var(--ff-display);
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+.appRowState {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+/* Liste der Unterlagen: Nummer, Bezeichnung, Datei – lesend (Jury, Verwaltung) oder mit Hochladen (Bewerber). */
+.docFiles {
+  border-top: 1px solid var(--line);
+}
+
+.docFile {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 14rem) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 4px 14px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.docNumber {
+  font-family: var(--ff-display);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.docFileLabel {
+  font-family: var(--ff-display);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+.docMissing {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+.docUpload {
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: start;
+  padding: 14px 0;
+}
+
+.docUploadText {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.docUploadFile {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  margin-top: 2px;
+}
+
+.docUploadAction {
+  position: relative;
+  align-self: center;
+}
+
+.fileLine {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+  color: var(--navy);
+}
+
+.fileLine svg {
+  flex-shrink: 0;
+}
+
+.fileLineName {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.fileLineMeta {
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+/* Inhalt einer Bewerbung (Verwaltung live, Jury): je Preis ein Fragebogen, dann Unterlagen. */
+.applicationContents {
+  display: grid;
+  gap: 32px;
+}
+
+.applicationPart {
+  display: grid;
+  gap: 12px;
+}
+
+.applicationPartHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.juryDocs {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0 4px;
+}
+
+.juryDocs .miniHeading {
+  margin-bottom: 0;
+}
+
+.controlFacts {
+  margin-top: 4px;
+}
+
+.lockedActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* ── Verwaltung: Fragebögen der Preise ────────────────────────────────────── */
+
+.definitionRow {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.definitionTitle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+
+.definitionActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.editorTabs {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.editorNav {
+  display: grid;
+  gap: 2px;
+}
+
+.editorNavLink {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 6px 10px;
+  font-family: var(--ff-display);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-body);
+  text-decoration: none;
+}
+
+.editorNavLink:hover {
+  background: var(--surface-2);
+  color: var(--navy);
+}
+
+.editorNavNum {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.errorSummary {
+  margin-bottom: 20px;
+  padding: 12px 16px;
+  border-left: 3px solid var(--danger);
+  background: var(--danger-wash);
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.editor {
+  display: grid;
+  gap: 20px;
+  justify-items: start;
+}
+
+.editor > * {
+  width: 100%;
+}
+
+.editor > button {
+  width: auto;
+}
+
+.editorSection {
+  display: grid;
+  gap: 16px;
+  padding: 22px 24px 24px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  scroll-margin-top: 24px;
+}
+
+.editorSectionHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.editorSectionTitle {
+  display: grid;
+  gap: 2px;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.editorSectionName {
+  font-size: 1.125rem;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  color: var(--text-heading);
+}
+
+.editorCriterion {
+  display: grid;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.editorFieldsTitle {
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+
+.editorFields {
+  border-top: 1px solid var(--line);
+}
+
+.editorField {
+  display: grid;
+  gap: 12px;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.editorFieldHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.editorFieldNum {
+  font-family: var(--ff-display);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.editorFieldRow {
+  display: grid;
+  grid-template-columns: minmax(0, 18rem) auto;
+  align-items: end;
+  gap: 12px 24px;
+}
+
+.editorRequired {
+  min-height: 44px;
+}
+
+.editorMore {
+  display: grid;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.editorTools {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.iconBtn {
+  width: 40px;
+  height: 40px;
+  display: inline-grid;
+  place-items: center;
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.iconBtn:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  color: var(--navy);
+}
+
+.iconBtn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.iconBtnDanger:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.editorPreview {
+  display: grid;
+  gap: 32px;
+}
+
+/* Demo-Steuerung: so viele gleich breite Felder, wie es Einträge gibt (Ausbaustufen: 4, Perspektiven: 2–3). */
+.demoSegments {
+  grid-template-columns: none;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+}
+
+.demoStages .demoSegment {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+@media (max-width: 639px) {
+  .docFile {
+    grid-template-columns: 24px minmax(0, 1fr);
+  }
+
+  .docFile > :last-child:not(.docUploadAction) {
+    grid-column: 2;
+  }
+
+  .docUpload {
+    grid-template-columns: 24px minmax(0, 1fr);
+  }
+
+  .docUploadAction {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .definitionRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .definitionActions {
+    justify-content: flex-start;
+  }
+
+  .editorFieldRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .editorSection {
+    padding: 18px 16px 20px;
+  }
+
+  .editorTabs {
+    margin-left: 0;
+  }
+}

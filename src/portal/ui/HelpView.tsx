@@ -4,13 +4,16 @@ import React from 'react'
 
 import { PageHeader } from '@/portal/ui/AppShell'
 import { cx } from '@/portal/ui/fields'
-import { PHASES } from '@/portal/domain/process'
+import { phasesIn } from '@/portal/domain/process'
+import { hasFeature } from '@/portal/domain/release'
 import { portalContent } from '@/portal/content/portalContent'
+import { useStage } from '@/portal/data/portalClient'
 import styles from '@/portal/ui/portal.module.css'
 
-/** Hilfe: Orientierung über die vier Phasen, häufige Fragen, Kontakt. */
+/** Hilfe: Orientierung über die Phasen der Ausbaustufe, häufige Fragen, Kontakt. */
 export function HelpView() {
   const copy = portalContent.help
+  const stage = useStage()
   return (
     <div className={styles.view}>
       <PageHeader title={copy.title} lead={copy.lead} />
@@ -21,7 +24,7 @@ export function HelpView() {
             {copy.phasesHeading}
           </h2>
           <ol className={styles.helpPhases}>
-            {PHASES.map((phase, index) => (
+            {phasesIn(stage).map((phase) => (
               <li key={phase.number} className={styles.helpPhase}>
                 <span className={styles.helpPhaseNum} aria-hidden="true">
                   {String(phase.number).padStart(2, '0')}
@@ -34,11 +37,11 @@ export function HelpView() {
                   <dl className={styles.helpPhaseFacts}>
                     <div>
                       <dt>{copy.happensLabel}</dt>
-                      <dd>{copy.phases[index].happens}</dd>
+                      <dd>{copy.phases[phase.number - 1].happens}</dd>
                     </div>
                     <div>
                       <dt>{copy.youLabel}</dt>
-                      <dd>{copy.phases[index].you}</dd>
+                      <dd>{copy.phases[phase.number - 1].you}</dd>
                     </div>
                   </dl>
                 </div>
@@ -52,7 +55,7 @@ export function HelpView() {
             {copy.faqHeading}
           </h2>
           <div className={styles.faqList}>
-            {copy.faq.map((item) => (
+            {copy.faq.filter((item) => hasFeature(stage, item.feature)).map((item) => (
               <details key={item.q} className={styles.faqItem}>
                 <summary className={styles.faqQuestion}>{item.q}</summary>
                 <p className={styles.faqAnswer}>{item.a}</p>

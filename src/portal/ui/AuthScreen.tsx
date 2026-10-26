@@ -8,7 +8,8 @@ import { PRIVACY_POLICY_PATH, isValidSubmissionEmail } from '@/shared/formSubmis
 import Image from '@/shared/UnoptimizedImage'
 import { PasswordField, TextField, cx, focusFirstInvalid } from '@/portal/ui/fields'
 import { portalContent } from '@/portal/content/portalContent'
-import { login, portalDemo, register } from '@/portal/data/portalClient'
+import { login, portalDemo, register, useStage } from '@/portal/data/portalClient'
+import { hasFeature } from '@/portal/domain/release'
 import { DEMO_PASSWORD } from '@/portal/domain/seed'
 import styles from '@/portal/ui/portal.module.css'
 
@@ -20,6 +21,7 @@ const MIN_PASSWORD = 8
 export function AuthScreen({ mode }: { mode: Mode }) {
   const router = useRouter()
   const copy = portalContent.auth
+  const stage = useStage()
   const formRef = useRef<HTMLFormElement>(null)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -264,7 +266,7 @@ export function AuthScreen({ mode }: { mode: Mode }) {
                 </h2>
                 <p className={styles.hint}>{copy.demoLogins.intro(DEMO_PASSWORD)}</p>
                 <ul className={styles.demoLoginList}>
-                  {copy.demoLogins.accounts.map((item) => (
+                  {copy.demoLogins.accounts.filter((item) => !item.feature || hasFeature(stage, item.feature)).map((item) => (
                     <li key={item.email}>
                       <span className={styles.demoLoginText}>
                         <strong>{item.role}</strong>

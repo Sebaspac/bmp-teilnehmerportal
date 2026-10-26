@@ -6,28 +6,27 @@ import { ArrowRight, CalendarDays, ClipboardList, FileCheck2, FileText, FolderUp
 import Image from '@/shared/UnoptimizedImage'
 import { cx } from '@/portal/ui/fields'
 import { NextStep, PhaseTimeline, StatusBadge } from '@/portal/ui/PhaseTimeline'
+import { applicationOpen, applicationProgress } from '@/portal/domain/application'
 import {
   DOC_META,
   DOC_STATUS_LABEL,
   applicantView,
+  applicationLockReason,
   documentsProgress,
-  onlyPendingPrizes,
-  questionnaireLockReason,
   type ApplicantView,
 } from '@/portal/domain/process'
-import { QUESTIONNAIRE, prizeTitles, prizesOf } from '@/portal/domain/questionnaire'
+import { definitionOf, prizeById, prizeTitles } from '@/portal/domain/questionnaire'
+import { hasFeature } from '@/portal/domain/release'
 import { portalContent } from '@/portal/content/portalContent'
-import { runCommand } from '@/portal/data/portalClient'
+import { runCommand, useProcessContext, usePortalSnapshot } from '@/portal/data/portalClient'
 import { submissionCompany } from '@/portal/domain/selectors'
-import { DOC_KEYS, type Account, type DocKey, type Submission } from '@/portal/domain/types'
+import { DOC_KEYS, type Account, type DocKey, type PrizeId, type Submission } from '@/portal/domain/types'
+import { DocUploadList } from '@/portal/ui/ApplicationView'
 import { Page, type PageHandle } from '@/portal/ui/Page'
 import { ReviewList, formatDate, formatDateTime, reviewGroups } from '@/portal/ui/SubmissionSheet'
 import styles from '@/portal/ui/portal.module.css'
 
 type Navigate = (path: string) => void
-
-// Abschnitte des Fragebogens plus „Prüfen & einreichen“.
-const QUESTIONNAIRE_SECTIONS = QUESTIONNAIRE.length + 1
 
 /**
  * Detailansicht eines Vorgangs aus Bewerbersicht (z. B. NEWEDGE). Reihenfolge nach Wichtigkeit:
@@ -39,20 +38,23 @@ export function VorgangSheet({
   onClose,
   navigate,
   initialSection,
+  demoHandover = false,
 }: {
   account: Account
   submission: Submission
   onClose: () => void
   navigate: Navigate
   initialSection?: string | null
+  /** Nur Prototyp: Fremdnominierung aus Sicht des vorgeschlagenen Unternehmens (`?demo=uebergabe`). */
+  demoHandover?: boolean
 }) {
   const copy = portalContent.vorgang
   const sheetRef = useRef<PageHandle>(null)
+  const ctx = useProcessContext()
   const company = submissionCompany(submission)
-  const view = applicantView(submission.process, submission.type, company)
+  const view = applicantView(submission.process, submission.type, company, ctx)
   const typeLabel = submission.type === 'fremdvorschlag' ? portalContent.submission.type.nomination.title : portalContent.submission.type.self.title
   const [open, setOpen] = useState<Record<string, boolean>>({})
-  const questionnairePath = `/portal/vorgang/${submission.id}/fragebogen`
 
   const reveal = (key: string) => {
     setOpen((current) => ({ ...current, [key]: true }))
@@ -62,7 +64,7 @@ export function VorgangSheet({
 
   // Direkter Einstieg aus der Vorgangsliste, z. B. „Rechnung ansehen“.
   useEffect(() => {
-    if (initialSection && ['anmeldung', 'zahlung', 'einladung', 'unterlagen'].includes(initialSection)) {
+    if (initialSection && ['anmeldung', 'zahlung', 'bewerbung', 'einladung', 'unterlagen'].includes(initialSection)) {
       const timer = window.setTimeout(() => reveal(initialSection), 360)
       return () => window.clearTimeout(timer)
     }
@@ -76,18 +78,16 @@ export function VorgangSheet({
         return <ActionButton onClick={() => reveal('anmeldung')} label={copy.actions.checkCompanyData} />
       case 'viewPayment':
         return <ActionButton onClick={() => reveal('zahlung')} label={copy.actions.viewPayment} />
-      case 'editQuestionnaire':
-        return <ActionButton onClick={() => navigate(questionnairePath)} label={view.next.label} />
-      case 'viewQuestionnaire':
-        return <ActionButton secondary onClick={() => navigate(questionnairePath)} label={copy.actions.viewQuestionnaire} />
+      case 'editApplication':
+        return <ActionButton secondary={!view.next.mustAct} onClick={() => reveal('bewerbung')} label={copy.actions.editApplication} />
+      case 'viewApplication':
+        return <ActionButton secondary onClick={() => reveal('bewerbung')} label={copy.actions.viewApplication} />
       case 'viewInvitation':
         return <ActionButton secondary={!view.next.mustAct} onClick={() => reveal('einladung')} label={copy.actions.viewInvitation} />
       case 'uploadDocuments':
         return <ActionButton onClick={() => reveal('unterlagen')} label={copy.actions.uploadDocuments} />
-      case 'changePrizes':
-        return <ActionButton secondary onClick={() => navigate(`${questionnairePath}?preise=1`)} label={copy.actions.changePrizes} />
       case 'demoHandover':
-        return <ActionButton secondary onClick={() => navigate(`${questionnairePath}?demo=uebergabe`)} label={copy.actions.demoHandover} />
+        return demoHandover ? null : <ActionButton secondary onClick={() => navigate(`/portal/vorgang/${submission.id}?demo=uebergabe`)} label={copy.actions.demoHandover} />
       default:
         return null
     }
@@ -112,7 +112,7 @@ export function VorgangSheet({
       }
     >
       <section aria-labelledby="vorgang-phase-heading" className={styles.vorgangTop}>
-        <PhaseTimeline view={view} />
+        {view.steps.length > 1 && <PhaseTimeline view={view} />}
 
         <div className={styles.phaseCard}>
           <h2 className={styles.phaseCardTitle} id="vorgang-phase-heading">
@@ -145,19 +145,24 @@ export function VorgangSheet({
           </p>
         </Block>
 
-        <PaymentBlock submission={submission} view={view} company={company} open={open.zahlung} onToggle={(value) => setOpen((current) => ({ ...current, zahlung: value }))} />
+        {hasFeature(ctx.stage, 'bewerbung') && (
+          <>
+            <PaymentBlock submission={submission} view={view} company={company} open={open.zahlung} onToggle={(value) => setOpen((current) => ({ ...current, zahlung: value }))} />
+            <ApplicationBlock submission={submission} view={view} navigate={navigate} demoHandover={demoHandover} />
+          </>
+        )}
 
-        <QuestionnaireBlock submission={submission} view={view} navigate={navigate} path={questionnairePath} />
+        {hasFeature(ctx.stage, 'jury') && (
+          <ResultBlock
+            submission={submission}
+            view={view}
+            company={company}
+            open={open.einladung}
+            onToggle={(value) => setOpen((current) => ({ ...current, einladung: value }))}
+          />
+        )}
 
-        <ResultBlock
-          submission={submission}
-          view={view}
-          company={company}
-          open={open.einladung}
-          onToggle={(value) => setOpen((current) => ({ ...current, einladung: value }))}
-        />
-
-        {submission.type === 'eigenbewerbung' && submission.process.result === 'einladung' && submission.process.documents && (
+        {hasFeature(ctx.stage, 'gewinnerunterlagen') && submission.type === 'eigenbewerbung' && submission.process.result === 'einladung' && submission.process.documents && (
           <DocumentsBlock submission={submission} />
         )}
       </div>
@@ -264,7 +269,7 @@ function PaymentBlock({
           ? copy.payment.nomination(company)
           : payment === 'keine_rechnung'
             ? copy.payment.noneText
-            : payment === 'zahlung_eingegangen' && submission.process.questionnaire !== 'gesperrt'
+            : payment === 'zahlung_eingegangen' && submission.process.application !== 'gesperrt'
               ? copy.payment.done
               : copy.payment.relation
       }
@@ -308,74 +313,162 @@ function PaymentBlock({
   )
 }
 
-function QuestionnaireBlock({ submission, view, navigate, path }: { submission: Submission; view: ApplicantView; navigate: Navigate; path: string }) {
-  const copy = portalContent.vorgang
-  const { questionnaire, deadline, questionnaireStep, questionnaireSubmittedAt, answers } = submission.process
-  const locked = view.questionnaireAccess === 'locked'
-  const prizes = prizesOf(answers)
-  let summary: string = copy.questionnaire.available
-  let status: React.ReactNode = null
-  let action: React.ReactNode = null
+/**
+ * Bewerbung (Phase 02) auf der Vorgangsseite: Preise, je Preis ein Fragebogen und die sechs Unterlagen – alles an
+ * einer Stelle, damit sichtbar ist, was noch fehlt.
+ */
+function ApplicationBlock({ submission, view, navigate, demoHandover }: { submission: Submission; view: ApplicantView; navigate: Navigate; demoHandover: boolean }) {
+  const copy = portalContent.vorgang.application
+  const snapshot = usePortalSnapshot()
+  const ctx = useProcessContext()
+  const p = submission.process
+  const access = view.applicationAccess
+  const progress = applicationProgress(p, ctx.released)
+  const base = `/portal/vorgang/${submission.id}`
+  const demo = demoHandover && access === 'handover' ? '?demo=uebergabe' : ''
+  const editable = access === 'open' || (access === 'handover' && demoHandover && p.application !== 'gesperrt')
+  const showContents = editable || access === 'readonly'
 
-  if (onlyPendingPrizes(submission.process)) {
-    // Nur Preise ohne Fragebogen gewählt: kein Fortschritt, keine Frist, nur die Preisauswahl lässt sich ändern.
-    summary = copy.questionnaire.pendingPrizes(prizeTitles(prizes))
-    status = <StatusBadge label={portalContent.questionnaire.prize.pending} tone="wartend" />
-    action = (
-      <button type="button" className={cx(styles.btn, styles.btnSecondary, styles.btnSmall)} onClick={() => navigate(`${path}?preise=1`)}>
-        {copy.actions.changePrizes}
-      </button>
-    )
-  } else if (view.questionnaireAccess === 'hidden') {
-    summary = copy.questionnaire.hiddenSummary
-    status = <StatusBadge label="Eingereicht" tone="abgeschlossen" />
-  } else if (view.questionnaireAccess === 'handover') {
-    summary = copy.questionnaire.handover
-    status = <StatusBadge label={copy.questionnaire.handoverStatus} tone="wartend" />
-  } else if (questionnaire === 'eingereicht') {
-    summary = `${copy.questionnaire.submitted} ${formatDateTime(questionnaireSubmittedAt)}`
-    status = <StatusBadge label="Eingereicht" tone="abgeschlossen" />
-    action = (
-      <button type="button" className={cx(styles.btn, styles.btnSecondary, styles.btnSmall)} onClick={() => navigate(path)}>
-        {copy.actions.viewQuestionnaire}
-      </button>
-    )
-  } else if (questionnaire === 'in_bearbeitung') {
-    summary = copy.questionnaire.progress(Math.min(questionnaireStep + 1, QUESTIONNAIRE_SECTIONS), QUESTIONNAIRE_SECTIONS)
-    status = <StatusBadge label="In Bearbeitung" tone="bearbeitung" />
-    action = (
-      <button type="button" className={cx(styles.btn, styles.btnSecondary, styles.btnSmall)} onClick={() => navigate(path)}>
-        {copy.actions.continueQuestionnaire}
-        <ArrowRight size={14} aria-hidden="true" />
-      </button>
-    )
-  } else if (questionnaire === 'verfuegbar') {
-    status = <StatusBadge label="Freigeschaltet" tone="freigeschaltet" />
-    action = (
-      <button type="button" className={cx(styles.btn, styles.btnSecondary, styles.btnSmall)} onClick={() => navigate(path)}>
-        {copy.actions.editQuestionnaire}
-        <ArrowRight size={14} aria-hidden="true" />
-      </button>
-    )
-  }
+  const summary =
+    access === 'locked'
+      ? applicationLockReason(p, submission.type)
+      : access === 'hidden'
+        ? copy.hiddenSummary
+        : access === 'handover' && !demoHandover
+          ? copy.handover
+          : [
+              copy.parts(progress.submitted, progress.chosen, progress.docs.uploaded, progress.docs.total),
+              p.application === 'eingereicht' && p.applicationCompletedAt
+                ? copy.completed(formatDateTime(p.applicationCompletedAt))
+                : p.deadline
+                  ? copy.deadline(formatDate(`${p.deadline}T12:00:00`))
+                  : '',
+            ]
+              .filter(Boolean)
+              .join(' · ')
+
+  const status =
+    access === 'hidden' || p.application === 'eingereicht' ? (
+      <StatusBadge label="Eingereicht" tone="abgeschlossen" />
+    ) : access === 'handover' && !demoHandover ? (
+      <StatusBadge label={copy.handoverStatus} tone="wartend" />
+    ) : p.application === 'in_bearbeitung' ? (
+      <StatusBadge label="In Bearbeitung" tone="bearbeitung" />
+    ) : p.application === 'verfuegbar' ? (
+      <StatusBadge label="Freigeschaltet" tone="freigeschaltet" />
+    ) : null
 
   return (
-    <Block
-      id="fragebogen"
-      icon={<FileText size={18} aria-hidden="true" />}
-      title={copy.blocks.questionnaire}
-      locked={locked}
-      lockedText={questionnaireLockReason(submission.process, submission.type)}
-      summary={
-        <>
-          {prizes.length > 0 && view.questionnaireAccess !== 'handover' && !onlyPendingPrizes(submission.process) && <strong>{prizeTitles(prizes)} · </strong>}
-          {summary}
-          {deadline && questionnaire !== 'eingereicht' && !locked && !onlyPendingPrizes(submission.process) ? ` · ${copy.questionnaire.deadline} ${formatDate(`${deadline}T12:00:00`)} (Demo)` : ''}
-        </>
-      }
-      status={status}
-      action={action}
-    />
+    <section className={cx(styles.block, access === 'locked' && styles.blockLocked)} id="vorgang-bewerbung" aria-labelledby="vorgang-bewerbung-title">
+      <div className={styles.blockHead}>
+        <span className={styles.blockIcon} aria-hidden="true">
+          {access === 'locked' ? <Lock size={16} /> : <FileText size={18} />}
+        </span>
+        <div className={styles.blockHeadText}>
+          <h2 className={styles.blockTitle} id="vorgang-bewerbung-title">
+            {portalContent.vorgang.blocks.application}
+          </h2>
+          <p className={styles.blockSummary}>{summary}</p>
+        </div>
+        {status && access !== 'locked' && <span className={styles.blockStatus}>{status}</span>}
+      </div>
+
+      {access === 'handover' && !demoHandover && p.application !== 'gesperrt' && (
+        <div className={styles.blockAction}>
+          <button type="button" className={cx(styles.btn, styles.btnSecondary, styles.btnSmall)} onClick={() => navigate(`${base}?demo=uebergabe`)}>
+            {portalContent.vorgang.actions.demoHandover}
+          </button>
+        </div>
+      )}
+
+      {showContents && (
+        <div className={styles.applicationBody}>
+          {demo && (
+            <p className={styles.noticeWarn}>
+              <Info size={16} aria-hidden="true" />
+              {copy.handoverDemo}
+            </p>
+          )}
+
+          <div className={styles.appPart}>
+            <div className={styles.appPartHead}>
+              <h3 className={styles.appPartTitle}>{copy.prizesHeading}</h3>
+              {editable && applicationOpen(p) && (
+                <button type="button" className={cx(styles.btn, progress.chosen ? styles.btnSecondary : styles.btnPrimary, styles.btnSmall)} onClick={() => navigate(`${base}/preise${demo}`)}>
+                  {progress.chosen ? copy.changePrizes : copy.choosePrizes}
+                </button>
+              )}
+            </div>
+            <p className={styles.appPartText}>{progress.chosen ? prizeTitles(p.prizes) : copy.prizesNone}</p>
+          </div>
+
+          {progress.chosen > 0 && (
+            <div className={styles.appPart}>
+              <h3 className={styles.appPartTitle}>{copy.questionnairesHeading}</h3>
+              <ul className={styles.appRows}>
+                {p.prizes.map((prize) => (
+                  <QuestionnaireRow key={prize} prize={prize} submission={submission} sections={definitionOf(snapshot, prize)?.sections.length ?? 0} released={ctx.released.includes(prize)} editable={editable} path={`${base}/fragebogen/${prize}${demo}`} navigate={navigate} />
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <div className={styles.appPart}>
+            <div className={styles.appPartHead}>
+              <h3 className={styles.appPartTitle}>{copy.docsHeading}</h3>
+              <span className={styles.appPartCount}>{copy.docsCount(progress.docs.uploaded, progress.docs.total)}</span>
+            </div>
+            <DocUploadList submission={submission} />
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function QuestionnaireRow({
+  prize,
+  submission,
+  sections,
+  released,
+  editable,
+  path,
+  navigate,
+}: {
+  prize: PrizeId
+  submission: Submission
+  sections: number
+  released: boolean
+  editable: boolean
+  path: string
+  navigate: Navigate
+}) {
+  const copy = portalContent.vorgang.application
+  const entry = submission.process.questionnaires[prize]
+  const title = prizeById(prize).title
+  const submitted = entry?.status === 'eingereicht'
+  const state = submitted
+    ? copy.qStatus.submitted(formatDateTime(entry.submittedAt))
+    : !released
+      ? copy.qStatus.waiting
+      : entry
+        ? copy.qStatus.progress(Math.min(entry.step + 1, sections + 1), sections + 1)
+        : copy.qStatus.notStarted
+  const action = submitted ? copy.qActions.view : !released || !editable ? null : entry ? copy.qActions.continue : copy.qActions.start
+  return (
+    <li className={styles.appRow}>
+      <span className={styles.appRowText}>
+        <span className={styles.appRowTitle}>{title}</span>
+        <span className={styles.appRowState}>{state}</span>
+      </span>
+      {action && (
+        <button type="button" className={cx(styles.btn, submitted ? styles.btnSecondary : styles.btnPrimary, styles.btnSmall)} onClick={() => navigate(path)}>
+          {action}
+          <span className={styles.srOnly}>: Fragebogen {title}</span>
+          {!submitted && <ArrowRight size={14} aria-hidden="true" />}
+        </button>
+      )}
+    </li>
   )
 }
 

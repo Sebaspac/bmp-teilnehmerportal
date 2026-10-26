@@ -15,26 +15,30 @@ import {
   assignedOf,
   juryProgress,
   PAYMENT_LABEL,
-  PHASES,
-  QUESTIONNAIRE_LABEL,
+  APPLICATION_LABEL,
   RESULT_LABEL,
   PARTY_LABEL,
   REVIEW_LABEL,
   ROUND_LABEL,
   adminNext,
   applicantView,
-  onlyPendingPrizes,
   canRelease,
   juryTally,
   phaseOf,
+  phasesIn,
+  waitingForDefinitions,
   type PhaseNumber,
+  type ProcessContext,
 } from '@/portal/domain/process'
 import { portalContent } from '@/portal/content/portalContent'
-import { summaryGroups } from '@/portal/ui/QuestionnaireSheet'
-import { QUESTIONNAIRE, REQUIRED_FIELDS, isFilled, prizeTitles, prizesOf } from '@/portal/domain/questionnaire'
-import { portalDemo, runCommand } from '@/portal/data/portalClient'
+import { applicationProgress } from '@/portal/domain/application'
+import { prizeById, prizeTitles } from '@/portal/domain/questionnaire'
+import { hasFeature, type Feature, type Stage } from '@/portal/domain/release'
+import { portalDemo, runCommand, useProcessContext } from '@/portal/data/portalClient'
 import type { PortalCommand } from '@/portal/domain/commands'
 import { can, type Permission, type Role } from '@/portal/domain/permissions'
+import { ApplicationContents } from '@/portal/ui/ApplicationView'
+import { DefinitionsSection } from '@/portal/ui/QuestionnaireAdmin'
 import { accountOf, submissionCompany, submittedSubmissions } from '@/portal/domain/selectors'
 import { DOC_KEYS, JURY_TYPES, type JuryStage, type JuryType, type PortalSnapshot, type ProcessState, type ResultStatus, type RoundStatus, type Submission } from '@/portal/domain/types'
 import { DocumentsCell, ExportsSection, RightsSection, RoundAdmin, documentsSummary } from '@/portal/ui/AdminAreas'
@@ -61,9 +65,10 @@ const TAB_OPEN: Record<AdminTab, (process: ProcessState) => boolean> = {
   uebersicht: () => true,
   runde: () => true,
   anmeldungen: () => true,
-  zahlungen: (process) => process.review === 'geprueft' && process.questionnaire === 'gesperrt',
-  fragebogen: (process) => process.payment === 'zahlung_eingegangen' && process.questionnaire !== 'eingereicht',
-  jury: (process) => process.questionnaire === 'eingereicht' && process.jury !== 'abgeschlossen',
+  zahlungen: (process) => process.review === 'geprueft' && process.application === 'gesperrt',
+  bewerbungen: (process) => process.payment === 'zahlung_eingegangen' && process.application !== 'eingereicht',
+  frageboegen: () => true,
+  jury: (process) => process.application === 'eingereicht' && process.jury !== 'abgeschlossen',
   ergebnisse: (process) => process.jury === 'abgeschlossen' && process.result !== 'einladung' && process.result !== 'keine_einladung',
   unterlagen: (process) => process.result === 'einladung' && (!documentsProgress(process).requested || documentsProgress(process).submitted > 0),
   exporte: () => true,
@@ -75,8 +80,9 @@ const TAB_ALL: Record<AdminTab, (process: ProcessState) => boolean> = {
   runde: () => true,
   anmeldungen: () => true,
   zahlungen: (process) => process.review === 'geprueft',
-  fragebogen: (process) => process.review === 'geprueft',
-  jury: (process) => process.questionnaire === 'eingereicht',
+  bewerbungen: (process) => process.review === 'geprueft',
+  frageboegen: () => true,
+  jury: (process) => process.application === 'eingereicht',
   ergebnisse: (process) => process.jury === 'abgeschlossen',
   unterlagen: (process) => process.result === 'einladung',
   exporte: () => true,
@@ -89,7 +95,8 @@ const TAB_PERMISSION: Record<AdminTab, Permission | null> = {
   runde: 'round',
   anmeldungen: 'review',
   zahlungen: 'payment',
-  fragebogen: 'release',
+  bewerbungen: 'release',
+  frageboegen: 'questionnaires',
   jury: 'jury',
   ergebnisse: 'results',
   unterlagen: 'documents',
@@ -97,17 +104,35 @@ const TAB_PERMISSION: Record<AdminTab, Permission | null> = {
   rechte: 'rights',
 }
 
-export const tabAllowed = (viewer: Role, tab: AdminTab) => !TAB_PERMISSION[tab] || can(viewer, TAB_PERMISSION[tab]!)
+/** Zu welcher Ausbaustufe ein Bereich gehört (`domain/release.ts`). Runde, Exporte und Rechte gibt es immer. */
+const TAB_FEATURE: Record<AdminTab, Feature> = {
+  uebersicht: 'anmeldung',
+  anmeldungen: 'anmeldung',
+  runde: 'anmeldung',
+  exporte: 'anmeldung',
+  rechte: 'anmeldung',
+  zahlungen: 'bewerbung',
+  bewerbungen: 'bewerbung',
+  frageboegen: 'bewerbung',
+  jury: 'jury',
+  ergebnisse: 'jury',
+  unterlagen: 'gewinnerunterlagen',
+}
+
+/** Darf die Rolle den Bereich sehen, und gehört er zur Ausbaustufe? */
+export const tabAllowed = (viewer: Role, tab: AdminTab, stage: Stage) => hasFeature(stage, TAB_FEATURE[tab]) && (!TAB_PERMISSION[tab] || can(viewer, TAB_PERMISSION[tab]!))
 
 /** Offene Arbeit je Bereich – die Zahlen in der Seitenleiste. */
-export function areaCounts(state: PortalSnapshot): Partial<Record<AdminTab, number>> {
+export function areaCounts(state: PortalSnapshot, ctx: ProcessContext): Partial<Record<AdminTab, number>> {
   const all = submittedSubmissions(state)
   const open = (tab: AdminTab) => all.filter((submission) => TAB_OPEN[tab](submission.process)).length
   return {
-    uebersicht: all.filter((submission) => adminNext(submission.process, submission.type).party === 'verwaltung').length,
+    uebersicht: all.filter((submission) => adminNext(submission.process, submission.type, ctx).party === 'verwaltung').length,
     anmeldungen: all.filter((submission) => submission.process.review !== 'geprueft').length,
     zahlungen: open('zahlungen'),
-    fragebogen: open('fragebogen'),
+    bewerbungen: open('bewerbungen'),
+    // Fragebögen, die gewählt, aber noch nicht freigeschaltet sind.
+    frageboegen: new Set(all.flatMap((submission) => waitingForDefinitions(submission.process, ctx.released ?? []))).size,
     jury: open('jury'),
     ergebnisse: open('ergebnisse'),
     unterlagen: open('unterlagen'),
@@ -124,11 +149,11 @@ function phaseBreakdown(list: Submission[], phase: PhaseNumber): string {
       ? [tally(parts.neu, (p) => p.review === 'neu'), tally(parts.in_pruefung, (p) => p.review === 'in_pruefung'), tally(parts.rueckfrage, (p) => p.review === 'rueckfrage')]
       : phase === 2
         ? [
-            tally(parts.rechnungFolgt, (p) => p.questionnaire === 'gesperrt' && p.payment === 'keine_rechnung'),
-            tally(parts.rechnungOffen, (p) => p.questionnaire === 'gesperrt' && p.payment === 'rechnung_offen'),
-            tally(parts.freigabeOffen, (p) => p.questionnaire === 'gesperrt' && p.payment === 'zahlung_eingegangen'),
-            tally(parts.inArbeit, (p) => p.questionnaire === 'verfuegbar' || p.questionnaire === 'in_bearbeitung'),
-            tally(parts.eingereicht, (p) => p.questionnaire === 'eingereicht'),
+            tally(parts.rechnungFolgt, (p) => p.application === 'gesperrt' && p.payment === 'keine_rechnung'),
+            tally(parts.rechnungOffen, (p) => p.application === 'gesperrt' && p.payment === 'rechnung_offen'),
+            tally(parts.freigabeOffen, (p) => p.application === 'gesperrt' && p.payment === 'zahlung_eingegangen'),
+            tally(parts.inArbeit, (p) => p.application === 'verfuegbar' || p.application === 'in_bearbeitung'),
+            tally(parts.eingereicht, (p) => p.application === 'eingereicht'),
           ]
         : phase === 3
           ? [tally(parts.zugewiesen, (p) => p.jury === 'zugewiesen'), tally(parts.jury1, (p) => p.jury === 'jury1'), tally(parts.jury2, (p) => p.jury === 'jury2')]
@@ -143,21 +168,23 @@ function phaseBreakdown(list: Submission[], phase: PhaseNumber): string {
  * Nächster Schritt direkt aus der Liste ausführen – nur für Schritte ohne weitere Eingaben. Prüfung, Freigabe (Frist)
  * und Ergebnis laufen bewusst über den Vorgang.
  */
-function quickAction(submission: Submission, viewer: Role): { label: string; run: () => void } | null {
+function quickAction(submission: Submission, viewer: Role, stage: Stage): { label: string; run: () => void } | null {
   const p = submission.process
   const id = submission.id
   const progress = juryProgress(p)
   const act = (label: string, command: PortalCommand) => ({ label, run: () => void runCommand(command) })
   if (p.result === 'einladung') {
-    return !documentsProgress(p).requested && can(viewer, 'documents') ? act(portalContent.admin.docs.request, { type: 'documents.request', submissionId: id }) : null
+    return hasFeature(stage, 'gewinnerunterlagen') && !documentsProgress(p).requested && can(viewer, 'documents')
+      ? act(portalContent.admin.docs.request, { type: 'documents.request', submissionId: id })
+      : null
   }
-  if (p.review === 'geprueft' && p.questionnaire === 'gesperrt') {
-    if (!can(viewer, 'payment')) return null
+  if (p.review === 'geprueft' && p.application === 'gesperrt') {
+    if (!can(viewer, 'payment') || !hasFeature(stage, 'bewerbung')) return null
     if (p.payment === 'keine_rechnung') return act('Rechnung stellen', { type: 'payment.invoice', submissionId: id })
     if (p.payment === 'rechnung_offen') return act('Zahlung bestätigen', { type: 'payment.confirm', submissionId: id })
     return null
   }
-  if (p.questionnaire !== 'eingereicht' || p.result === 'keine_einladung' || !can(viewer, 'jury')) return null
+  if (p.application !== 'eingereicht' || p.result === 'keine_einladung' || !can(viewer, 'jury') || !hasFeature(stage, 'jury')) return null
   // Ohne eigene Auswahl weist der Befehl die Standardbesetzung zu.
   if (p.jury === 'nicht_zugewiesen') return act('Der Jury zuweisen', { type: 'jury.assign', submissionId: id })
   if (p.jury === 'zugewiesen' && progress.jury1.assigned > 0) return act('Jury 1 starten', { type: 'jury.start', submissionId: id, stage: 'jury1' })
@@ -168,7 +195,8 @@ function quickAction(submission: Submission, viewer: Role): { label: string; run
   return null
 }
 
-const hasAnswers = (submission: Submission) => submission.process.questionnaire === 'in_bearbeitung' || submission.process.questionnaire === 'eingereicht'
+/** Hat die Bewerbung schon Inhalte (Preise, Fragebögen, Unterlagen)? Dann gibt es die Live-Ansicht. */
+const hasAnswers = (submission: Submission) => submission.process.application === 'in_bearbeitung' || submission.process.application === 'eingereicht'
 
 const fmtAverage = (value: number | null) => (value === null ? '–' : value.toLocaleString('de-DE', { maximumFractionDigits: 1 }))
 
@@ -186,6 +214,7 @@ export function AdminOverview({
   sessionAccountId: string | null
 }) {
   const copy = portalContent.admin
+  const ctx = useProcessContext()
   const all = submittedSubmissions(state)
   const [query, setQuery] = useState('')
   const [phase, setPhase] = useState<PhaseNumber | 0>(0)
@@ -221,6 +250,8 @@ export function AdminOverview({
       copy.exportsRights.exportsLead
     ) : tab === 'rechte' ? (
       copy.exportsRights.rightsLead
+    ) : tab === 'frageboegen' ? (
+      copy.definitions.lead
     ) : undefined
 
   return (
@@ -238,7 +269,7 @@ export function AdminOverview({
       />
       {tab === 'uebersicht' && (
         <div className={styles.phaseCounts} role="group" aria-label="Nach Phase filtern">
-          {PHASES.map((item) => (
+          {phasesIn(ctx.stage).map((item) => (
             <button
               key={item.number}
               type="button"
@@ -260,8 +291,10 @@ export function AdminOverview({
           ))}
         </div>
       )}
-        {!tabAllowed(viewer, tab) ? (
+        {!tabAllowed(viewer, tab, ctx.stage) ? (
           <p className={styles.tableEmpty}>{copy.noPermission}</p>
+        ) : tab === 'frageboegen' ? (
+          <DefinitionsSection state={state} navigate={navigate} />
         ) : tab === 'runde' ? (
           <RoundAdmin state={state} />
         ) : tab === 'exporte' ? (
@@ -271,7 +304,7 @@ export function AdminOverview({
         ) : (
           <>
             {tab === 'jury' && <JuryDashboard state={state} navigate={navigate} />}
-            {tab === 'uebersicht' && <TaskList rows={rows} state={state} navigate={navigate} viewer={viewer} />}
+            {tab === 'uebersicht' && <TaskList rows={rows} navigate={navigate} viewer={viewer} />}
             {tab === 'unterlagen' && <p className={styles.noticeInline} style={{ marginBottom: 14 }}>{copy.docs.placeholder}</p>}
             {tab === 'uebersicht' && (
               <h2 className={styles.sectionTitle} style={{ margin: '8px 0 14px' }}>
@@ -296,18 +329,18 @@ export function AdminOverview({
               )}
               {tab === 'ergebnisse' && (
                 <>
-                  <button type="button" className={styles.textBtn} onClick={() => saveExport(buildExport(state, 'mail_eingeladen'))}>
+                  <button type="button" className={styles.textBtn} onClick={() => saveExport(buildExport(state, 'mail_eingeladen', ctx))}>
                     <Download size={15} aria-hidden="true" />
                     {copy.mailingInvited}
                   </button>
-                  <button type="button" className={styles.textBtn} onClick={() => saveExport(buildExport(state, 'mail_keine'))}>
+                  <button type="button" className={styles.textBtn} onClick={() => saveExport(buildExport(state, 'mail_keine', ctx))}>
                     <Download size={15} aria-hidden="true" />
                     {copy.mailingDeclined}
                   </button>
                 </>
               )}
               {can(viewer, 'exports') && (
-                <button type="button" className={cx(styles.btn, styles.btnSecondary, styles.btnSmall)} onClick={() => saveExport(buildListExport(state, rows, tab))}>
+                <button type="button" className={cx(styles.btn, styles.btnSecondary, styles.btnSmall)} onClick={() => saveExport(buildListExport(state, rows, tab, ctx))}>
                   <FileSpreadsheet size={15} aria-hidden="true" />
                   {copy.listExport}
                 </button>
@@ -319,7 +352,7 @@ export function AdminOverview({
                 {copy.listExportDone(exported.filename, exported.count)}
               </p>
             )}
-            <AdminTable rows={rows} tab={tab} state={state} navigate={navigate} viewer={viewer} />
+            <AdminTable rows={rows} tab={tab} state={state} navigate={navigate} viewer={viewer} ctx={ctx} />
           </>
         )}
     </div>
@@ -327,9 +360,10 @@ export function AdminOverview({
 }
 
 /** Übersicht: Vorgänge, bei denen die Verwaltung am Zug ist – mit dem nächsten Schritt direkt zum Ausführen. */
-function TaskList({ rows, state, navigate, viewer }: { rows: Submission[]; state: PortalSnapshot; navigate: Navigate; viewer: Role }) {
+function TaskList({ rows, navigate, viewer }: { rows: Submission[]; navigate: Navigate; viewer: Role }) {
   const copy = portalContent.admin.overview
-  const tasks = rows.filter((submission) => adminNext(submission.process, submission.type).party === 'verwaltung')
+  const ctx = useProcessContext()
+  const tasks = rows.filter((submission) => adminNext(submission.process, submission.type, ctx).party === 'verwaltung')
   return (
     <section className={styles.taskSection} aria-labelledby="admin-tasks">
       <h2 className={styles.sectionTitle} id="admin-tasks">
@@ -341,9 +375,9 @@ function TaskList({ rows, state, navigate, viewer }: { rows: Submission[]; state
       ) : (
         <ul className={styles.taskList}>
           {tasks.map((submission) => {
-            const view = applicantView(submission.process, submission.type, submissionCompany(submission))
-            const next = adminNext(submission.process, submission.type)
-            const quick = quickAction(submission, viewer)
+            const view = applicantView(submission.process, submission.type, submissionCompany(submission), ctx)
+            const next = adminNext(submission.process, submission.type, ctx)
+            const quick = quickAction(submission, viewer, ctx.stage)
             return (
               <li key={submission.id} className={styles.taskItem}>
                 <div className={styles.taskText}>
@@ -367,7 +401,7 @@ function TaskList({ rows, state, navigate, viewer }: { rows: Submission[]; state
                       </button>
                     )}
                     {hasAnswers(submission) && (
-                      <button type="button" className={styles.textBtn} onClick={() => navigate(`/portal/admin/fragebogen/${submission.id}`)}>
+                      <button type="button" className={styles.textBtn} onClick={() => navigate(`/portal/admin/bewerbung/${submission.id}`)}>
                         {copy.viewQuestionnaire}
                         <span className={styles.srOnly}>: {submissionCompany(submission)}</span>
                       </button>
@@ -391,14 +425,19 @@ function TaskList({ rows, state, navigate, viewer }: { rows: Submission[]; state
   )
 }
 
-/** Live-Ansicht eines Fragebogens für die Verwaltung: zuletzt gespeicherter Stand, aktualisiert sich mit jeder Speicherung. */
-export function AdminQuestionnaireSheet({ submission, onClose, onOpenCase }: { submission: Submission; onClose: () => void; onOpenCase: () => void }) {
+/** Live-Ansicht einer Bewerbung für die Verwaltung: zuletzt gespeicherter Stand aller Fragebögen und Unterlagen. */
+export function AdminApplicationSheet({ state, submission, onClose, onOpenCase }: { state: PortalSnapshot; submission: Submission; onClose: () => void; onOpenCase: () => void }) {
   const copy = portalContent.admin.liveQuestionnaire
+  const appCopy = portalContent.admin.application
   const sheetRef = React.useRef<PageHandle>(null)
+  const ctx = useProcessContext()
   const p = submission.process
-  const filled = REQUIRED_FIELDS.filter((field) => isFilled(p.answers, field)).length
-  const prizes = prizesOf(p.answers)
-  const started = Object.keys(p.answers).length > 0
+  const progress = applicationProgress(p, ctx.released)
+  const lastSaved = Object.values(p.questionnaires)
+    .map((entry) => entry?.savedAt ?? '')
+    .concat(Object.values(p.applicationDocs).map((file) => file?.uploadedAt ?? ''))
+    .sort()
+    .pop()
 
   return (
     <Page
@@ -423,46 +462,63 @@ export function AdminQuestionnaireSheet({ submission, onClose, onOpenCase }: { s
       <dl className={styles.reviewList} style={{ marginBottom: 20 }}>
         <div className={styles.reviewRow}>
           <dt>{copy.status}</dt>
-          <dd>{QUESTIONNAIRE_LABEL[p.questionnaire]}</dd>
-        </div>
-        <div className={styles.reviewRow}>
-          <dt>{copy.progress}</dt>
-          <dd>
-            {portalContent.admin.overview.progress(filled, REQUIRED_FIELDS.length)}
-            {p.questionnaire === 'in_bearbeitung' ? ` · ${copy.section(Math.min(p.questionnaireStep + 1, QUESTIONNAIRE.length + 1), QUESTIONNAIRE.length + 1)}` : ''}
-          </dd>
-        </div>
-        <div className={styles.reviewRow}>
-          <dt>{p.questionnaire === 'eingereicht' ? copy.submittedAt : copy.savedAt}</dt>
-          <dd>{formatDateTime(p.questionnaire === 'eingereicht' ? p.questionnaireSubmittedAt : p.questionnaireSavedAt)}</dd>
+          <dd>{APPLICATION_LABEL[p.application]}</dd>
         </div>
         <div className={styles.reviewRow}>
           <dt>{copy.prizes}</dt>
-          <dd>{prizeTitles(prizes) || '–'}</dd>
+          <dd>{prizeTitles(p.prizes) || '–'}</dd>
+        </div>
+        <div className={styles.reviewRow}>
+          <dt>{appCopy.questionnaires}</dt>
+          <dd>{appCopy.questionnairesValue(progress.submitted, progress.chosen)}</dd>
+        </div>
+        <div className={styles.reviewRow}>
+          <dt>{appCopy.docs}</dt>
+          <dd>{appCopy.docsValue(progress.docs.uploaded, progress.docs.total)}</dd>
+        </div>
+        <div className={styles.reviewRow}>
+          <dt>{p.application === 'eingereicht' ? copy.submittedAt : copy.savedAt}</dt>
+          <dd>{formatDateTime(p.application === 'eingereicht' ? p.applicationCompletedAt : lastSaved)}</dd>
         </div>
       </dl>
-      {started ? <ReviewList groups={summaryGroups(p.answers)} /> : <p className={styles.tableEmpty}>{copy.none}</p>}
+      <ApplicationContents data={state} process={p} emptyText={copy.none} />
     </Page>
   )
 }
 
-function AdminTable({ rows, tab, state, navigate, viewer }: { rows: Submission[]; tab: AdminTab; state: PortalSnapshot; navigate: Navigate; viewer: Role }) {
+function AdminTable({
+  rows,
+  tab,
+  state,
+  navigate,
+  viewer,
+  ctx,
+}: {
+  rows: Submission[]
+  tab: AdminTab
+  state: PortalSnapshot
+  navigate: Navigate
+  viewer: Role
+  ctx: Required<ProcessContext>
+}) {
   const copy = portalContent.admin
   const c = copy.columns
+  const appCopy = copy.application
+  const progressOf = (submission: Submission) => applicationProgress(submission.process, ctx.released)
   const extra: Array<{ label: string; value: (submission: Submission) => React.ReactNode }> =
-    tab === 'uebersicht'
+    tab === 'uebersicht' && hasFeature(ctx.stage, 'bewerbung')
       ? [
           {
             label: copy.overview.questionnaireCol,
             value: (s) => (
               <span className={styles.tableStack}>
-                <span>{QUESTIONNAIRE_LABEL[s.process.questionnaire]}</span>
+                <span>{APPLICATION_LABEL[s.process.application]}</span>
                 {hasAnswers(s) && (
                   <>
                     <span className={styles.tableSubText}>
-                      {copy.overview.progress(REQUIRED_FIELDS.filter((field) => isFilled(s.process.answers, field)).length, REQUIRED_FIELDS.length)}
+                      {appCopy.questionnaires} {progressOf(s).submitted}/{progressOf(s).chosen} · {appCopy.docs} {progressOf(s).docs.uploaded}/{progressOf(s).docs.total}
                     </span>
-                    <button type="button" className={cx(styles.textBtn, styles.nowrap)} onClick={() => navigate(`/portal/admin/fragebogen/${s.id}`)}>
+                    <button type="button" className={cx(styles.textBtn, styles.nowrap)} onClick={() => navigate(`/portal/admin/bewerbung/${s.id}`)}>
                       {copy.overview.viewLive}
                       <span className={styles.srOnly}>: {submissionCompany(s)}</span>
                     </button>
@@ -479,10 +535,22 @@ function AdminTable({ rows, tab, state, navigate, viewer }: { rows: Submission[]
           ]
       : tab === 'zahlungen'
       ? [{ label: c.payment, value: (s) => PAYMENT_LABEL[s.process.payment] }]
-      : tab === 'fragebogen'
+      : tab === 'bewerbungen'
         ? [
-            { label: c.prize, value: (s) => prizeTitles(prizesOf(s.process.answers), 'short') || '–' },
-            { label: c.questionnaire, value: (s) => QUESTIONNAIRE_LABEL[s.process.questionnaire] },
+            { label: c.prize, value: (s) => prizeTitles(s.process.prizes, 'short') || '–' },
+            {
+              label: c.questionnaire,
+              value: (s) => (
+                <span className={styles.tableStack}>
+                  <span>{APPLICATION_LABEL[s.process.application]}</span>
+                  {s.process.application !== 'gesperrt' && (
+                    <span className={styles.tableSubText}>
+                      {appCopy.questionnaires} {appCopy.questionnairesValue(progressOf(s).submitted, progressOf(s).chosen)} · {appCopy.docs} {appCopy.docsValue(progressOf(s).docs.uploaded, progressOf(s).docs.total)}
+                    </span>
+                  )}
+                </span>
+              ),
+            },
             { label: c.deadline, value: (s) => fmtDeadline(s.process.deadline) },
           ]
         : tab === 'jury'
@@ -532,10 +600,10 @@ function AdminTable({ rows, tab, state, navigate, viewer }: { rows: Submission[]
         </thead>
         <tbody>
           {rows.map((submission) => {
-            const view = applicantView(submission.process, submission.type, submissionCompany(submission))
+            const view = applicantView(submission.process, submission.type, submissionCompany(submission), ctx)
             const owner = accountOf(state, submission.accountId)
-            const next = adminNext(submission.process, submission.type)
-            const quick = quickAction(submission, viewer)
+            const next = adminNext(submission.process, submission.type, ctx)
+            const quick = quickAction(submission, viewer, ctx.stage)
             return (
               <tr key={submission.id}>
                 <td className={styles.tableCompanyCell}>
@@ -598,6 +666,7 @@ export function AdminVorgangSheet({
   onClose,
   onOpenApplicant,
   onOpenQuestionnaire,
+  onOpenDefinitions,
   viewer = 'verwaltung',
 }: {
   state: PortalSnapshot
@@ -605,19 +674,29 @@ export function AdminVorgangSheet({
   onClose: () => void
   /** Nur Prototyp: in die Bewerberansicht wechseln (Demo-Steuerung). Ohne Funktion entfällt der Button. */
   onOpenApplicant?: () => void
-  /** Live-Ansicht des Fragebogens (Verwaltung). */
+  /** Live-Ansicht der Bewerbung (Verwaltung). */
   onOpenQuestionnaire?: () => void
   /** Rolle der angemeldeten Person – Bereiche ohne Recht sind nur lesbar. */
   viewer?: Role
+  /** Zum Bereich „Fragebögen“ (wenn ein gewählter Fragebogen noch nicht freigeschaltet ist). */
+  onOpenDefinitions?: () => void
 }) {
   const copy = portalContent.admin.sheet
   const sheetRef = React.useRef<PageHandle>(null)
+  const ctx = useProcessContext()
   const p = submission.process
-  const view = applicantView(p, submission.type, submissionCompany(submission))
+  const view = applicantView(p, submission.type, submissionCompany(submission), ctx)
   const owner = accountOf(state, submission.accountId)
   const id = submission.id
   const run = (command: PortalCommand) => void runCommand(command)
-  const beforeRelease = p.questionnaire === 'gesperrt'
+  const beforeRelease = p.application === 'gesperrt'
+  const appProgress = applicationProgress(p, ctx.released)
+  const waiting = waitingForDefinitions(p, ctx.released)
+  const withApplication = hasFeature(ctx.stage, 'bewerbung')
+  const withJury = hasFeature(ctx.stage, 'jury')
+  // Schritte der Ausbaustufe, fortlaufend nummeriert.
+  let stepNumber = 0
+  const nextNumber = () => ++stepNumber
   // Die Prüfung lässt sich nur ändern, solange noch keine Rechnung gestellt ist.
   const reviewEditable = beforeRelease && p.payment === 'keine_rechnung'
   // Jurystufen nur in Reihenfolge und erst, wenn die Stimmen der vorigen Stufe vollständig sind.
@@ -626,14 +705,14 @@ export function AdminVorgangSheet({
   const allPoints = progress.jury2.assigned > 0 && progress.jury2.done === progress.jury2.assigned
   const decided = p.result === 'einladung' || p.result === 'keine_einladung'
   const stageAllowed = (stage: JuryStage) => {
-    if (p.questionnaire !== 'eingereicht' || decided) return false
+    if (p.application !== 'eingereicht' || decided) return false
     if (stage === 'zugewiesen') return p.jury === 'nicht_zugewiesen'
     if (stage === 'jury1') return p.jury === 'zugewiesen' && progress.jury1.assigned > 0
     if (stage === 'jury2') return p.jury === 'jury1' && allVotes
     return p.jury === 'jury2' && allPoints
   }
   // Nur die Steuerung des nächsten Schritts ist hervorgehoben.
-  const nextStep = adminNext(p, submission.type).label
+  const nextStep = adminNext(p, submission.type, ctx).label
   const isNomination = submission.type === 'fremdvorschlag'
   const setResult = (value: ResultStatus) => {
     if (p.result === 'einladung' && value !== 'einladung' && !window.confirm(copy.withdrawConfirm)) return
@@ -654,7 +733,7 @@ export function AdminVorgangSheet({
       title={submissionCompany(submission)}
       subtitle={
         <>
-          {[typeLabel(submission), prizeTitles(prizesOf(submission.process.answers))].filter(Boolean).join(' · ')} · Eingangsnummer{' '}
+          {[typeLabel(submission), prizeTitles(submission.process.prizes)].filter(Boolean).join(' · ')} · Eingangsnummer{' '}
           <span className={styles.nowrap}>{submission.reference}</span> · eingereicht am {formatDate(submission.submittedAt)}
         </>
       }
@@ -674,7 +753,7 @@ export function AdminVorgangSheet({
     >
       <div className={styles.caseLayout}>
         <div className={styles.controlList}>
-          <Control number={1} title={copy.blocks.review} state={REVIEW_LABEL[p.review]} done={p.review === 'geprueft'} readOnly={!can(viewer, 'review')}>
+          <Control number={nextNumber()} title={copy.blocks.review} state={REVIEW_LABEL[p.review]} done={p.review === 'geprueft'} readOnly={!can(viewer, 'review')}>
             <div className={styles.controlActions}>
               <ControlButton active={p.review === 'in_pruefung'} disabled={!reviewEditable} onClick={() => run({ type: 'review.set', submissionId: id, status: 'in_pruefung' })}>
                 {copy.reviewActions.inReview}
@@ -696,7 +775,9 @@ export function AdminVorgangSheet({
             )}
           </Control>
 
-          <Control number={2} title={copy.blocks.payment} state={PAYMENT_LABEL[p.payment]} done={p.payment === 'zahlung_eingegangen'} locked={p.review !== 'geprueft'} readOnly={!can(viewer, 'payment')}>
+          {withApplication && (
+          <>
+          <Control number={nextNumber()} title={copy.blocks.payment} state={PAYMENT_LABEL[p.payment]} done={p.payment === 'zahlung_eingegangen'} locked={p.review !== 'geprueft'} readOnly={!can(viewer, 'payment')}>
             <Requirements items={[{ label: copy.requirements.reviewed, met: p.review === 'geprueft' }]} />
             <div className={styles.controlActions}>
               <ControlButton
@@ -718,7 +799,7 @@ export function AdminVorgangSheet({
             <p className={styles.noticeInline}>{copy.paymentNote}</p>
           </Control>
 
-          <Control number={3} title={copy.blocks.release} state={QUESTIONNAIRE_LABEL[p.questionnaire]} done={!beforeRelease} locked={p.review !== 'geprueft'} readOnly={!can(viewer, 'release')}>
+          <Control number={nextNumber()} title={copy.blocks.release} state={APPLICATION_LABEL[p.application]} done={p.application === 'eingereicht'} locked={p.review !== 'geprueft'} readOnly={!can(viewer, 'release')}>
             <Requirements
               items={[
                 { label: copy.requirements.reviewed, met: p.review === 'geprueft' },
@@ -733,49 +814,78 @@ export function AdminVorgangSheet({
                   type="date"
                   className={styles.input}
                   value={p.deadline}
-                  onChange={(event) => run({ type: 'questionnaire.setDeadline', submissionId: id, deadline: event.target.value })}
+                  onChange={(event) => run({ type: 'application.setDeadline', submissionId: id, deadline: event.target.value })}
                 />
                 {!p.deadline && beforeRelease && state.roundSettings.questionnaireDeadline && (
                   <button
                     type="button"
                     className={styles.textBtn}
-                    onClick={() => run({ type: 'questionnaire.setDeadline', submissionId: id, deadline: state.roundSettings.questionnaireDeadline })}
+                    onClick={() => run({ type: 'application.setDeadline', submissionId: id, deadline: state.roundSettings.questionnaireDeadline })}
                   >
                     {copy.useDefaultDeadline(fmtDeadline(state.roundSettings.questionnaireDeadline))}
                   </button>
                 )}
               </label>
               <ControlButton
-                primary={nextStep === 'Fragebogen freigeben'}
+                primary={nextStep === 'Bewerbung freigeben'}
                 active={!beforeRelease}
                 disabled={!canRelease(p) || !p.deadline || !beforeRelease}
-                onClick={() => run({ type: 'questionnaire.release', submissionId: id })}
+                onClick={() => run({ type: 'application.release', submissionId: id })}
               >
                 {beforeRelease ? copy.release : copy.released}
               </ControlButton>
             </div>
-            {(p.questionnaire === 'in_bearbeitung' || p.questionnaire === 'eingereicht') && onOpenQuestionnaire && (
+            {!beforeRelease && (
+              <dl className={cx(styles.reviewList, styles.controlFacts)}>
+                <div className={styles.reviewRow}>
+                  <dt>{portalContent.admin.application.prizes}</dt>
+                  <dd>{prizeTitles(p.prizes) || '–'}</dd>
+                </div>
+                <div className={styles.reviewRow}>
+                  <dt>{portalContent.admin.application.questionnaires}</dt>
+                  <dd>{portalContent.admin.application.questionnairesValue(appProgress.submitted, appProgress.chosen)}</dd>
+                </div>
+                <div className={styles.reviewRow}>
+                  <dt>{portalContent.admin.application.docs}</dt>
+                  <dd>{portalContent.admin.application.docsValue(appProgress.docs.uploaded, appProgress.docs.total)}</dd>
+                </div>
+              </dl>
+            )}
+            {(p.application === 'in_bearbeitung' || p.application === 'eingereicht') && onOpenQuestionnaire && (
               <button type="button" className={styles.textBtn} onClick={onOpenQuestionnaire}>
                 <Eye size={15} aria-hidden="true" />
                 {portalContent.admin.overview.viewQuestionnaire}
               </button>
             )}
             {submission.type === 'fremdvorschlag' && <p className={styles.noticeInline}>{copy.nominationNote}</p>}
-            {onlyPendingPrizes(p) && <p className={styles.noticeInline}>{copy.pendingPrizesNote}</p>}
+            {waiting.length > 0 && (
+              <p className={styles.noticeInline}>
+                {portalContent.admin.application.waitingNote(waiting.map((prize) => prizeById(prize).title).join(', '))}{' '}
+                {onOpenDefinitions && can(viewer, 'questionnaires') && (
+                  <button type="button" className={styles.textBtn} onClick={onOpenDefinitions}>
+                    {portalContent.admin.application.toDefinitions}
+                  </button>
+                )}
+              </p>
+            )}
           </Control>
+          </>
+          )}
 
+          {withJury && (
+          <>
           <Control
-            number={4}
+            number={nextNumber()}
             title={copy.blocks.jury}
             state={JURY_LABEL[p.jury]}
             done={p.jury === 'abgeschlossen'}
-            locked={p.questionnaire !== 'eingereicht'}
+            locked={p.application !== 'eingereicht'}
             confidential
             readOnly={!can(viewer, 'jury')}
           >
             <Requirements
               items={[
-                { label: copy.requirements.submitted, met: p.questionnaire === 'eingereicht' },
+                { label: copy.requirements.submitted, met: p.application === 'eingereicht' },
                 { label: copy.requirements.votes, met: allVotes },
                 { label: copy.requirements.points, met: allPoints },
               ]}
@@ -801,7 +911,7 @@ export function AdminVorgangSheet({
                 </ControlButton>
               ))}
             </div>
-            {p.questionnaire === 'eingereicht' && (
+            {p.application === 'eingereicht' && (
               <>
                 {/* Besetzung je Jury-Art: zuweisen/lösen und den Stand jedes Mitglieds sehen. */}
                 <div className={styles.juryAssign}>
@@ -847,7 +957,7 @@ export function AdminVorgangSheet({
           </Control>
 
           <Control
-            number={5}
+            number={nextNumber()}
             title={copy.blocks.result}
             state={RESULT_LABEL[p.result]}
             done={p.result === 'einladung' || p.result === 'keine_einladung'}
@@ -874,8 +984,12 @@ export function AdminVorgangSheet({
             </p>
           </Control>
 
+          </>
+          )}
+
+          {hasFeature(ctx.stage, 'gewinnerunterlagen') && (
           <Control
-            number={6}
+            number={nextNumber()}
             title={portalContent.admin.tabs.find((item) => item.key === 'unterlagen')!.title}
             state={documentsSummary(p)}
             done={documentsProgress(p).requested && documentsProgress(p).approved === documentsProgress(p).total}
@@ -920,7 +1034,7 @@ export function AdminVorgangSheet({
             )}
             <p className={styles.noticeInline}>{portalContent.admin.docs.placeholder}</p>
           </Control>
-
+          )}
         </div>
 
         <aside className={styles.caseAside}>
@@ -928,7 +1042,7 @@ export function AdminVorgangSheet({
             <h2 className={styles.miniHeading} id="admin-applicant-sees">
               {isNomination ? copy.nominatorSees : copy.applicantSees}
             </h2>
-            <PhaseTimeline view={view} compact />
+            {view.steps.length > 1 ? <PhaseTimeline view={view} compact /> : <StatusBadge label={view.status.label} tone={view.status.tone} />}
           </section>
 
           <section className={styles.logBox} aria-labelledby="admin-log">

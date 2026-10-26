@@ -3,36 +3,19 @@
 import React, { useEffect, useId, useRef, useState } from 'react'
 import { AlertCircle, ArrowLeft, ArrowRight, Check, CheckCircle2, FileText, Info, Lock, Save, Send } from 'lucide-react'
 
-import { FieldShell, FootLabel, MultiChoiceField, PrivacyNote, SelectField, TextAreaField, TextField, cx, focusFirstInvalid } from '@/portal/ui/fields'
-import { PhaseTimeline } from '@/portal/ui/PhaseTimeline'
-import { applicantView, questionnaireLockReason } from '@/portal/domain/process'
+import { FieldShell, FootLabel, PrivacyNote, SelectField, TextAreaField, TextField, cx, focusFirstInvalid } from '@/portal/ui/fields'
+import { applicationProgress } from '@/portal/domain/application'
+import { applicantView, applicationLockReason } from '@/portal/domain/process'
 import { portalContent } from '@/portal/content/portalContent'
-import { runCommand } from '@/portal/data/portalClient'
+import { currentSnapshot, runCommand, useProcessContext } from '@/portal/data/portalClient'
 import { submissionCompany } from '@/portal/domain/selectors'
-import type { Account, QuestionnaireAnswers, Submission } from '@/portal/domain/types'
-import {
-  CONFIRM_KEY,
-  PRIZES,
-  PRIZE_KEY,
-  QUESTIONNAIRE,
-  REQUIRED_FIELDS,
-  displayValue,
-  guidanceNote,
-  encodePrizes,
-  isFilled,
-  prizeTitles,
-  prizesOf,
-  validateSection,
-  type PrizeId,
-  type QuestionField,
-  type QuestionSection,
-} from '@/portal/domain/questionnaire'
+import type { Account, PrizeId, QuestionField, QuestionSection, QuestionnaireAnswers, QuestionnaireDefinition, Submission } from '@/portal/domain/types'
+import { CONFIRM_KEY, guidanceNote, isFilled, prizeById, requiredFields, validateSection } from '@/portal/domain/questionnaire'
+import { summaryGroups } from '@/portal/ui/ApplicationView'
 import { Page, Steps, type PageHandle } from '@/portal/ui/Page'
-import { ReviewList, formatDateTime, type ReviewGroup } from '@/portal/ui/SubmissionSheet'
+import { ReviewList, formatDateTime } from '@/portal/ui/SubmissionSheet'
 import styles from '@/portal/ui/portal.module.css'
 
-const REVIEW_STEP = QUESTIONNAIRE.length
-const STEP_LABELS = [...QUESTIONNAIRE.map((section) => section.step), portalContent.questionnaire.reviewStep]
 const GUIDANCE_LETTERS = 'abcdefgh'
 
 /** Eingaben auf das Antwortformat beschränken (z. B. nur Ziffern, Dezimalkomma). */
@@ -55,8 +38,8 @@ function normalize(field: QuestionField, value: string) {
   }
 }
 
-/** Vorbelegung aus Anmeldung und Stammdaten – nur für leere Felder. */
-function prefill(submission: Submission, account: Account | null, answers: QuestionnaireAnswers): QuestionnaireAnswers {
+/** Vorbelegung aus Anmeldung und Stammdaten – nur für leere Felder, die es im Fragebogen gibt. */
+function prefill(submission: Submission, account: Account | null, sections: readonly QuestionSection[], answers: QuestionnaireAnswers): QuestionnaireAnswers {
   const isNomination = submission.type === 'fremdvorschlag'
   const source: QuestionnaireAnswers = isNomination
     ? { company_name: submission.nomination.companyName, city: submission.nomination.city, website: submission.nomination.website }
@@ -78,85 +61,71 @@ function prefill(submission: Submission, account: Account | null, answers: Quest
       contact_email: account.email,
     })
   }
+  const ids = new Set(sections.flatMap((section) => section.fields.map((field) => field.id)))
   const merged = { ...answers }
   for (const [key, value] of Object.entries(source)) {
-    if (value && !(merged[key] ?? '').trim()) merged[key] = value
+    if (ids.has(key) && value && !(merged[key] ?? '').trim()) merged[key] = value
   }
   return merged
 }
 
-/** Zusammenfassung für Prüfen, Lesen und Jury. Die Preiswahl steht vorn (step −1 = zurück zur Preiswahl). */
-export function summaryGroups(answers: QuestionnaireAnswers): ReviewGroup[] {
-  const copy = portalContent.questionnaire.prize
-  return [
-    { title: copy.reviewGroup, step: -1, rows: [[copy.reviewLabel, prizeTitles(prizesOf(answers)) || '–']] },
-    ...QUESTIONNAIRE.map((section, index) => ({
-      title: section.heading,
-      step: index,
-      // Freiwillige Referenzen nur zeigen, wenn angegeben.
-      rows: section.fields
-        .filter((field) => !field.id.startsWith('ref') || isFilled(answers, field))
-        .map((field) => [field.label, displayValue(field, answers[field.id])] as [string, string]),
-    })),
-  ]
-}
-
 /**
- * Bewerbungsfragebogen (Phase 02) – Fragen aus dem BMP-Fragebogen mit festen Antwortformaten. Gesperrt, bis die
- * Verwaltung ihn freigibt; danach zuerst Preiswahl, dann der Fragebogen des Preises mit Zwischenspeichern; nach der
- * (simulierten) Einreichung nur lesbar.
+ * Fragebogen eines Preises (Phase 02). Je gewähltem Preis gibt es einen eigenen Fragebogen; Abschnitte und Fragen kommen
+ * aus der `QuestionnaireDefinition`, die die Verwaltung bearbeitet und freischaltet. Mit Zwischenspeichern; nach dem
+ * Einreichen nur lesbar. Die Preiswahl liegt auf einer eigenen Seite (`PrizeSheet`).
  */
 export function QuestionnaireSheet({
   submission,
   account,
+  prize,
+  definition,
   demoHandover,
-  openPrizes = false,
   urlStep = null,
   onStepChange,
-  onPrizeEntry,
+  onChoosePrizes,
   onClose,
 }: {
   submission: Submission
   account: Account | null
+  prize: PrizeId
+  definition: QuestionnaireDefinition | null
   demoHandover: boolean
-  /** Direkt mit der Preiswahl öffnen (z. B. „Preisauswahl ändern“). */
-  openPrizes?: boolean
   /** Abschnitt aus der URL (`?schritt=`), damit die Zurück-Taste des Browsers einen Abschnitt zurückgeht. */
   urlStep?: number | null
   onStepChange?: (step: number) => void
-  /** Preiswahl als Einstieg in der URL markieren (`?preise=1`), damit Vor/Zurück sie wiederfinden. */
-  onPrizeEntry?: () => void
+  onChoosePrizes: () => void
   onClose: () => void
 }) {
   const copy = portalContent.questionnaire
   const sheetRef = useRef<PageHandle>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
+  const ctx = useProcessContext()
   const company = submissionCompany(submission)
-  const view = applicantView(submission.process, submission.type, company)
-  const editable = view.questionnaireAccess === 'open' || (view.questionnaireAccess === 'handover' && demoHandover)
-  const [answers, setAnswers] = useState<QuestionnaireAnswers>(() =>
-    editable ? prefill(submission, account, submission.process.answers) : submission.process.answers,
-  )
-  const startStep = Math.min(submission.process.questionnaireStep, REVIEW_STEP)
+  const prizeTitle = prizeById(prize).title
+  const view = applicantView(submission.process, submission.type, company, ctx)
+  const entry = submission.process.questionnaires[prize]
+  const sections = definition?.status === 'freigeschaltet' ? definition.sections : []
+  const required = requiredFields(sections)
+  const reviewStep = sections.length
+  const stepLabels = [...sections.map((section) => section.step), copy.reviewStep]
+  const chosen = submission.process.prizes.includes(prize)
+  const access = view.applicationAccess === 'handover' && demoHandover ? 'open' : view.applicationAccess
+  const submitted = entry?.status === 'eingereicht'
+  const editable = access === 'open' && chosen && sections.length > 0 && !submitted
+  const [answers, setAnswers] = useState<QuestionnaireAnswers>(() => (editable ? prefill(submission, account, sections, entry?.answers ?? {}) : (entry?.answers ?? {})))
+  const startStep = Math.min(entry?.step ?? 0, reviewStep)
   const [step, setStep] = useState(startStep)
   const [reachable, setReachable] = useState(startStep)
   const [errors, setErrors] = useState<Record<string, string>>({})
-  const [savedAt, setSavedAt] = useState<string | undefined>(submission.process.questionnaireSavedAt)
+  const [savedAt, setSavedAt] = useState<string | undefined>(entry?.savedAt)
   const [submitting, setSubmitting] = useState(false)
   const [done, setDone] = useState(false)
   // Nach „Ändern“ aus der Prüfung führt der Hauptbutton direkt zurück zur Prüfung.
   const [fromReview, setFromReview] = useState(false)
-  const [choosingPrize, setChoosingPrize] = useState(() => editable && (openPrizes || !prizesOf(submission.process.answers).length))
-  const [prizeDraft, setPrizeDraft] = useState<PrizeId[]>(() => prizesOf(submission.process.answers).map((prize) => prize.id))
-  const prizes = prizesOf(answers)
-  // Der vorhandene Fragebogen gehört zum Bayerischen Mittelstandspreis; für die übrigen Preise folgt er.
-  const activePrize = prizes.find((prize) => prize.hasQuestionnaire)
-  const pendingTitles = prizes.filter((prize) => !prize.hasQuestionnaire).map((prize) => prize.title)
-  const subtitle = activePrize ? `${company} · ${activePrize.title}` : company
+  const subtitle = `${company} · ${prizeTitle}`
 
   /** Jede Änderung wird sofort zwischengespeichert (Befehl questionnaire.save). */
-  const save = (next: QuestionnaireAnswers, reached: number) =>
-    void runCommand({ type: 'questionnaire.save', submissionId: submission.id, answers: next, step: reached })
+  const save = (next: QuestionnaireAnswers, reached: number) => void runCommand({ type: 'questionnaire.save', submissionId: submission.id, prize, answers: next, step: reached })
 
   const update = (field: QuestionField | string, raw: string) => {
     const id = typeof field === 'string' ? field : field.id
@@ -172,26 +141,16 @@ export function QuestionnaireSheet({
     setSavedAt(new Date().toISOString())
   }
 
-  // Browser-Zurück/Vor: Abschnitt aus der URL; ohne Abschnitt (und ohne frühere Preiswahl) ist die Preiswahl der Schritt davor.
-  const [startedWithoutPrizes] = useState(() => !prizesOf(submission.process.answers).length)
-  useEffect(() => {
-    if (editable && startedWithoutPrizes && urlStep === null && !openPrizes) onPrizeEntry?.()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  // Browser-Zurück/Vor: Abschnitt aus der URL.
   useEffect(() => {
     if (!editable) return
-    if (urlStep === null && (openPrizes || startedWithoutPrizes)) {
-      setChoosingPrize(true)
-      return
-    }
-    if (urlStep !== null && choosingPrize && prizesOf(answers).length) setChoosingPrize(false)
     const target = urlStep ?? startStep
     if (target !== step && target <= reachable) {
       setStep(target)
       sheetRef.current?.scrollToTop()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [urlStep, openPrizes])
+  }, [urlStep])
 
   const goTo = (target: number) => {
     if (target !== step) onStepChange?.(target)
@@ -203,12 +162,7 @@ export function QuestionnaireSheet({
   }
 
   const validateStep = (index: number) => {
-    const found =
-      index === REVIEW_STEP
-        ? answers[CONFIRM_KEY] === 'ja'
-          ? {}
-          : { [CONFIRM_KEY]: copy.errors.confirmed }
-        : validateSection(QUESTIONNAIRE[index], answers)
+    const found = index === reviewStep ? (answers[CONFIRM_KEY] === 'ja' ? {} : { [CONFIRM_KEY]: copy.errors.confirmed }) : validateSection(sections[index], answers)
     setErrors(found)
     if (Object.keys(found).length) {
       focusFirstInvalid(bodyRef.current)
@@ -242,7 +196,7 @@ export function QuestionnaireSheet({
 
   const submit = () => {
     if (submitting) return
-    for (let index = 0; index <= REVIEW_STEP; index++) {
+    for (let index = 0; index <= reviewStep; index++) {
       if (!validateStep(index)) {
         if (index !== step) goTo(index)
         return
@@ -250,47 +204,38 @@ export function QuestionnaireSheet({
     }
     setSubmitting(true)
     window.setTimeout(async () => {
-      const submitted = await runCommand({ type: 'questionnaire.submit', submissionId: submission.id, answers })
+      const ok = await runCommand({ type: 'questionnaire.submit', submissionId: submission.id, prize, answers })
       setSubmitting(false)
-      if (!submitted) return
+      if (!ok) return
       setDone(true)
       sheetRef.current?.scrollToTop()
     }, 900)
   }
 
-  const openPrizeChoice = () => {
-    setPrizeDraft(prizes.map((prize) => prize.id))
-    setErrors({})
-    setChoosingPrize(true)
-    sheetRef.current?.scrollToTop()
-  }
-
-  const confirmPrize = () => {
-    if (!prizeDraft.length) {
-      setErrors({ [PRIZE_KEY]: copy.prize.error })
-      window.requestAnimationFrame(() => document.getElementById('fb-prize-choice')?.focus())
-      return
-    }
-    const encoded = encodePrizes(prizeDraft)
-    if (encoded !== answers[PRIZE_KEY]) update(PRIZE_KEY, encoded)
-    // Verlaufseintrag: Zurück aus Abschnitt 1 führt wieder zur Preiswahl – nur wenn sie der Einstieg war.
-    if (urlStep === null && (startedWithoutPrizes || openPrizes)) onStepChange?.(step)
-    setErrors({})
-    setChoosingPrize(false)
-    sheetRef.current?.scrollToTop()
-  }
-
-  const answeredCount = REQUIRED_FIELDS.filter((field) => isFilled(answers, field)).length
+  const answeredCount = required.filter((field) => isFilled(answers, field)).length
   const savedLabel = savedAt ? copy.savedAt(new Date(savedAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })) : ''
+  const backToVorgang = (
+    <button type="button" className={cx(styles.btn, styles.btnSecondary)} onClick={() => sheetRef.current?.close()}>
+      <ArrowLeft size={16} aria-hidden="true" />
+      {copy.backToVorgang}
+    </button>
+  )
 
   /* ── Eingereicht (gerade eben) ── */
   if (done) {
-    const after = applicantView(submission.process, submission.type, company)
+    // Den Stand direkt nach dem Befehl lesen: Ist die Bewerbung damit vollständig?
+    const latest = currentSnapshot()?.submissions.find((item) => item.id === submission.id) ?? submission
+    const progress = applicationProgress(latest.process, ctx.released)
+    const missingDocs = progress.docs.total - progress.docs.uploaded
+    const remaining = [
+      ...[...progress.open, ...progress.waiting].map((id) => `${copy.title} ${prizeById(id).title}`),
+      ...(missingDocs ? [`${missingDocs} ${missingDocs === 1 ? 'Unterlage' : 'Unterlagen'}`] : []),
+    ]
     return (
       <Page
         ref={sheetRef}
         title={copy.title}
-        subtitle={company}
+        subtitle={subtitle}
         onClose={onClose}
         backLabel={portalContent.sheet.backTo.vorgang}
         footer={
@@ -309,158 +254,65 @@ export function QuestionnaireSheet({
           </span>
           <h3 className={styles.stepHeading}>{copy.submittedTitle}</h3>
           <p className={styles.stepIntro} style={{ marginBottom: 0 }}>
-            {copy.submittedText}
+            {copy.submittedText(prizeTitle)} {latest.process.application === 'eingereicht' ? copy.applicationDone : remaining.length ? copy.remaining(remaining.join(', ')) : ''}
           </p>
-          {pendingTitles.length > 0 && (
-            <p className={styles.notice}>
-              <Info size={16} aria-hidden="true" />
-              {copy.prize.pendingNote(pendingTitles)}
-            </p>
-          )}
           <p className={styles.noticeWarn}>
             <Info size={16} aria-hidden="true" />
             {copy.simulated}
           </p>
-          <PhaseTimeline view={after} compact />
-        </div>
-      </Page>
-    )
-  }
-
-  /* ── Gesperrt ── */
-  if (!editable && view.questionnaireAccess !== 'readonly') {
-    return (
-      <Page ref={sheetRef} title={copy.title} subtitle={company} onClose={onClose}>
-        <div className={styles.lockedState}>
-          <span className={styles.lockedIcon} aria-hidden="true">
-            <Lock size={26} />
-          </span>
-          <h3 className={styles.stepHeading}>
-            {view.questionnaireAccess === 'hidden' ? copy.hiddenTitle : view.questionnaireAccess === 'handover' ? copy.handoverTitle : copy.lockedTitle}
-          </h3>
-          <p className={styles.stepIntro}>
-            {view.questionnaireAccess === 'hidden'
-              ? copy.hiddenText
-              : view.questionnaireAccess === 'handover'
-                ? copy.handoverText
-                : questionnaireLockReason(submission.process, submission.type)}
-          </p>
-          <PhaseTimeline view={view} compact />
-          <button type="button" className={cx(styles.btn, styles.btnSecondary)} onClick={() => sheetRef.current?.close()}>
-            <ArrowLeft size={16} aria-hidden="true" />
-            {copy.backToVorgang}
-          </button>
         </div>
       </Page>
     )
   }
 
   /* ── Nur lesen (eingereicht) ── */
-  if (!editable) {
+  if (submitted && definition) {
     return (
-      <Page ref={sheetRef} title={copy.title} subtitle={`${subtitle} · ${copy.readonlySubtitle} ${formatDateTime(submission.process.questionnaireSubmittedAt)}`} onClose={onClose}>
+      <Page ref={sheetRef} title={copy.title} subtitle={`${subtitle} · ${copy.readonlySubtitle} ${formatDateTime(entry.submittedAt)}`} onClose={onClose} backLabel={portalContent.sheet.backTo.vorgang}>
         <p className={styles.notice} style={{ marginBottom: 20 }}>
           <Lock size={16} aria-hidden="true" />
           {copy.readonlyNote}
         </p>
-        <ReviewList groups={summaryGroups(answers)} />
+        <ReviewList groups={summaryGroups(definition.sections, entry.answers)} />
       </Page>
     )
   }
 
-  /* ── Preiswahl: führt zum Fragebogen des gewählten Preises ── */
-  if (choosingPrize || !prizes.length) {
+  /* ── Gesperrt, nicht gewählt oder Fragebogen noch nicht freigeschaltet ── */
+  if (!editable) {
+    const [title, text, icon] =
+      access === 'hidden'
+        ? [copy.hiddenTitle, copy.hiddenText, <Lock key="i" size={26} />]
+        : access === 'handover'
+          ? [copy.handoverTitle, copy.handoverText, <Lock key="i" size={26} />]
+          : access !== 'open'
+            ? [copy.lockedTitle, applicationLockReason(submission.process, submission.type), <Lock key="i" size={26} />]
+            : !chosen
+              ? [copy.notChosenTitle, copy.notChosenText, <FileText key="i" size={26} />]
+              : [copy.pendingTitle(prizeTitle), copy.pendingText, <FileText key="i" size={26} />]
     return (
-      <Page
-        ref={sheetRef}
-        title={copy.title}
-        subtitle={company}
-        onClose={onClose}
-        backLabel={portalContent.sheet.backTo.vorgang}
-        footer={
-          <>
-            <button
-              type="button"
-              className={cx(styles.btn, styles.btnSecondary, !prizes.length && styles.footClose)}
-              onClick={() => (prizes.length ? setChoosingPrize(false) : sheetRef.current?.close())}
-            >
-              {prizes.length ? copy.prize.cancel : portalContent.sheet.close}
-            </button>
-            <button type="button" className={cx(styles.btn, styles.btnPrimary)} onClick={confirmPrize}>
-              <FootLabel long={copy.prize.continue} short={portalContent.sheet.next} />
-              <ArrowRight size={16} aria-hidden="true" />
-            </button>
-          </>
-        }
-      >
-        <section aria-labelledby="fb-prize">
-          {demoHandover && view.questionnaireAccess === 'handover' && (
-            <p className={styles.noticeWarn} style={{ marginBottom: 16 }}>
-              <Info size={16} aria-hidden="true" />
-              {copy.handoverDemo}
-            </p>
-          )}
-          <h3 className={styles.stepHeading} id="fb-prize">
-            {copy.prize.heading}
-          </h3>
-          <p className={styles.stepIntro}>{copy.prize.intro}</p>
-          <MultiChoiceField<PrizeId>
-            id="fb-prize-choice"
-            legend={copy.prize.legend}
-            legendClassName={styles.srOnly}
-            name={`prize-${submission.id}`}
-            value={prizeDraft}
-            onValueChange={(value) => {
-              setPrizeDraft(value)
-              setErrors({})
-            }}
-            options={PRIZES.map((option) => ({
-              value: option.id,
-              label: option.title,
-              desc: option.desc,
-              tag: option.hasQuestionnaire ? undefined : copy.prize.pending,
-            }))}
-            error={errors[PRIZE_KEY]}
-          />
-        </section>
-      </Page>
-    )
-  }
-
-  /* ── Nur Preise ohne Fragebogen gewählt (vorerst leer) ── */
-  if (!activePrize) {
-    return (
-      <Page
-        ref={sheetRef}
-        title={copy.title}
-        subtitle={`${company} · ${pendingTitles.join(', ')}`}
-        onClose={onClose}
-        backLabel={portalContent.sheet.backTo.vorgang}
-        footer={
-          <>
-            <button type="button" className={cx(styles.btn, styles.btnSecondary, styles.footClose)} onClick={() => sheetRef.current?.close()}>
-              {portalContent.sheet.close}
-            </button>
-            <button type="button" className={cx(styles.btn, styles.btnPrimary)} onClick={openPrizeChoice}>
-              <ArrowLeft size={16} aria-hidden="true" />
-              {copy.prize.other}
-            </button>
-          </>
-        }
-      >
+      <Page ref={sheetRef} title={copy.title} subtitle={subtitle} onClose={onClose} backLabel={portalContent.sheet.backTo.vorgang}>
         <div className={styles.lockedState}>
           <span className={styles.lockedIcon} aria-hidden="true">
-            <FileText size={26} />
+            {icon}
           </span>
-          <h3 className={styles.stepHeading}>{copy.prize.emptyTitle(pendingTitles)}</h3>
-          <p className={styles.stepIntro}>{copy.prize.emptyText}</p>
+          <h3 className={styles.stepHeading}>{title}</h3>
+          <p className={styles.stepIntro}>{text}</p>
+          <div className={styles.lockedActions}>
+            {access === 'open' && (
+              <button type="button" className={cx(styles.btn, styles.btnPrimary)} onClick={onChoosePrizes}>
+                {copy.prize.change}
+              </button>
+            )}
+            {backToVorgang}
+          </div>
         </div>
       </Page>
     )
   }
 
   /* ── Bearbeiten ── */
-  const section = step < REVIEW_STEP ? QUESTIONNAIRE[step] : null
+  const section = step < reviewStep ? sections[step] : null
   return (
     <Page
       ref={sheetRef}
@@ -468,16 +320,16 @@ export function QuestionnaireSheet({
       subtitle={subtitle}
       onClose={onClose}
       backLabel={portalContent.sheet.backTo.vorgang}
-      rail={<Steps labels={STEP_LABELS} current={step} reachable={reachable} onSelect={jumpTo} />}
+      rail={<Steps labels={stepLabels} current={step} reachable={reachable} onSelect={jumpTo} />}
       meta={
         <div className={styles.progressRow}>
           <span className={styles.progressBar} aria-hidden="true">
-            <span style={{ transform: `scaleX(${answeredCount / REQUIRED_FIELDS.length})` }} />
+            <span style={{ transform: `scaleX(${required.length ? answeredCount / required.length : 1})` }} />
           </span>
           <span className={styles.progressText}>
-            <strong className={styles.progressStep}>{copy.sectionOf(step + 1, STEP_LABELS.length, STEP_LABELS[step])}</strong>
+            <strong className={styles.progressStep}>{copy.sectionOf(step + 1, stepLabels.length, stepLabels[step])}</strong>
             {' · '}
-            {copy.progress(answeredCount, REQUIRED_FIELDS.length)}
+            {copy.progress(answeredCount, required.length)}
           </span>
         </div>
       }
@@ -510,12 +362,12 @@ export function QuestionnaireSheet({
               {justSaved ? copy.savedNow : ''}
             </span>
           </div>
-          {step < REVIEW_STEP && fromReview ? (
-            <button type="button" className={cx(styles.btn, styles.btnPrimary)} onClick={() => jumpTo(REVIEW_STEP)}>
+          {step < reviewStep && fromReview ? (
+            <button type="button" className={cx(styles.btn, styles.btnPrimary)} onClick={() => jumpTo(reviewStep)}>
               <FootLabel long={copy.backToReview} short={copy.backToReviewShort} />
               <ArrowRight size={16} aria-hidden="true" />
             </button>
-          ) : step < REVIEW_STEP ? (
+          ) : step < reviewStep ? (
             <button type="button" className={cx(styles.btn, styles.btnPrimary)} onClick={next}>
               {portalContent.sheet.next}
               <ArrowRight size={16} aria-hidden="true" />
@@ -530,7 +382,7 @@ export function QuestionnaireSheet({
       }
     >
       <div ref={bodyRef}>
-        {demoHandover && view.questionnaireAccess === 'handover' && (
+        {demoHandover && view.applicationAccess === 'handover' && (
           <p className={styles.noticeWarn} style={{ marginBottom: 16 }}>
             <Info size={16} aria-hidden="true" />
             {copy.handoverDemo}
@@ -539,44 +391,36 @@ export function QuestionnaireSheet({
 
         {step === 0 && (
           <div className={styles.fbIntro}>
-            <p>{copy.intro}</p>
+            <p>{copy.intro(prizeTitle)}</p>
             <p className={styles.hint}>
               {copy.formatNote} {copy.autosave}
             </p>
             <div className={styles.fbPrize}>
               <p>
-                {copy.prize.chosen(prizes.length)} <strong>{prizeTitles(prizes)}</strong>
+                {copy.prize.chosen(submission.process.prizes.length)} <strong>{submission.process.prizes.map((id) => prizeById(id).title).join(', ')}</strong>
               </p>
-              {pendingTitles.length > 0 && <p className={styles.hint}>{copy.prize.pendingNote(pendingTitles)}</p>}
-              <button type="button" className={styles.textBtn} onClick={openPrizeChoice}>
+              <button type="button" className={styles.textBtn} onClick={onChoosePrizes}>
                 {copy.prize.change}
               </button>
             </div>
           </div>
         )}
 
-        {section && <SectionForm section={section} answers={answers} errors={errors} onChange={update} prefilledNote={step === 0 ? copy.prefilled : undefined} />}
+        {section && <SectionForm section={section} answers={answers} errors={errors} onChange={update} prefilledNote={step === 0 && prize === 'bmp' ? copy.prefilled : undefined} />}
 
-        {step === REVIEW_STEP && (
+        {step === reviewStep && (
           <section aria-labelledby="fb-review">
             <h3 className={styles.stepHeading} id="fb-review">
               {copy.reviewHeading}
             </h3>
             <p className={styles.stepIntro}>{copy.reviewIntro}</p>
             <ReviewList
-              groups={summaryGroups(answers)}
+              groups={summaryGroups(sections, answers)}
               onEdit={(target) => {
-                if (target < 0) return openPrizeChoice()
                 setFromReview(true)
                 goTo(target)
               }}
             />
-            {pendingTitles.length > 0 && (
-              <p className={styles.notice} style={{ marginTop: 16 }}>
-                <Info size={16} aria-hidden="true" />
-                {copy.prize.pendingNote(pendingTitles)}
-              </p>
-            )}
             <div className={cx(styles.consentBox, errors[CONFIRM_KEY] && styles.consentBoxInvalid)}>
               <label className={styles.check}>
                 <input
@@ -604,8 +448,8 @@ export function QuestionnaireSheet({
   )
 }
 
-/** Ein Abschnitt: bei Kriterien mit Leitfrage, Erläuterung und Orientierungsfragen a), b), … */
-function SectionForm({
+/** Ein Abschnitt: bei Kriterien mit Leitfrage, Erläuterung und Orientierungsfragen a), b), … Auch für die Vorschau im Editor. */
+export function SectionForm({
   section,
   answers,
   errors,

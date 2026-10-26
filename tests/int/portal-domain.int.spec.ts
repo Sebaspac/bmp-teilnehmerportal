@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
+import { APPLICATION_DOCS } from '@/portal/domain/application'
 import { executeCommand, type CommandContext, type PortalCommand } from '@/portal/domain/commands'
 import { actorOf } from '@/portal/domain/permissions'
-import { applicantView } from '@/portal/domain/process'
-import { CONFIRM_KEY, demoAnswers } from '@/portal/domain/questionnaire'
+import { adminNext, applicantView } from '@/portal/domain/process'
+import { CONFIRM_KEY, SEED_QUESTIONNAIRES, definitionOf, demoAnswers, releasedPrizes } from '@/portal/domain/questionnaire'
+import type { Stage } from '@/portal/domain/release'
 import { seedData } from '@/portal/domain/seed'
-import type { PortalData } from '@/portal/domain/types'
+import type { PortalData, PrizeId, QuestionSection } from '@/portal/domain/types'
 import { visibleTo } from '@/portal/domain/visibility'
 
 // Teilnehmerportal: Geschäftsregeln (domain/commands.ts) und Sichtbarkeit (domain/visibility.ts). Dieselben Regeln
@@ -17,7 +19,7 @@ const SACHBEARBEITUNG = 'demo-sachbearbeitung'
 const UNTERNEHMER = 'demo-newedge'
 const JURY = { a: 'demo-jury', b: 'demo-jury-b', c: 'demo-jury-c', d: 'demo-jury-d', e: 'demo-jury-e' }
 
-function context(): CommandContext {
+function context(stage?: Stage): CommandContext {
   let tick = 0
   let id = 0
   return {
@@ -25,11 +27,13 @@ function context(): CommandContext {
     newId: () => `id-${++id}`,
     newReference: () => 'BMP-TEST01',
     newPassword: (kind) => `${kind}-test`,
+    stage,
   }
 }
 
 const ctx = context()
 const run = (data: PortalData, accountId: string | null, command: PortalCommand) => executeCommand(data, actorOf(data, accountId), command, ctx)
+const runIn = (stage: Stage, data: PortalData, accountId: string | null, command: PortalCommand) => executeCommand(data, actorOf(data, accountId), command, context(stage))
 
 /** Führt Befehle nacheinander aus und erwartet, dass jeder gelingt. */
 function steps(data: PortalData, list: Array<[string, PortalCommand]>) {
@@ -41,23 +45,38 @@ function steps(data: PortalData, list: Array<[string, PortalCommand]>) {
 }
 
 const process = (data: PortalData, id = NEWEDGE) => data.submissions.find((submission) => submission.id === id)!.process
-const completeAnswers = () => ({ ...demoAnswers('NEWEDGE', 'München'), [CONFIRM_KEY]: 'ja' })
+const completeAnswers = (prize: PrizeId = 'bmp') => ({ ...demoAnswers(SEED_QUESTIONNAIRES[prize], 'NEWEDGE', 'München'), [CONFIRM_KEY]: 'ja' })
 
-/** NEWEDGE bis „Fragebogen eingereicht“. */
-const throughQuestionnaire = (data: PortalData) =>
+/** Alle sechs Unterlagen hochladen – Dateinamen in verschiedenen Formaten. */
+const uploadAll = (): Array<[string, PortalCommand]> =>
+  APPLICATION_DOCS.map((doc, index) => [
+    UNTERNEHMER,
+    { type: 'application.uploadDoc', submissionId: NEWEDGE, key: doc.key, fileName: `${doc.key}.${['pdf', 'xlsx', 'docx', 'pptx', 'png', 'pdf'][index]}`, size: 120_000 },
+  ])
+
+/** NEWEDGE bis zur Freigabe der Bewerbung. */
+const throughRelease = (data: PortalData) =>
   steps(data, [
     [VERWALTUNG, { type: 'review.set', submissionId: NEWEDGE, status: 'geprueft' }],
     [VERWALTUNG, { type: 'payment.invoice', submissionId: NEWEDGE }],
     [VERWALTUNG, { type: 'payment.confirm', submissionId: NEWEDGE }],
-    [VERWALTUNG, { type: 'questionnaire.setDeadline', submissionId: NEWEDGE, deadline: '2027-02-15' }],
-    [VERWALTUNG, { type: 'questionnaire.release', submissionId: NEWEDGE }],
-    [UNTERNEHMER, { type: 'questionnaire.submit', submissionId: NEWEDGE, answers: completeAnswers() }],
+    [VERWALTUNG, { type: 'application.setDeadline', submissionId: NEWEDGE, deadline: '2027-02-15' }],
+    [VERWALTUNG, { type: 'application.release', submissionId: NEWEDGE }],
+  ])
+
+/** NEWEDGE bis „Bewerbung eingereicht“: Preis BMP, Fragebogen, sechs Unterlagen. */
+const throughQuestionnaire = (data: PortalData) =>
+  steps(throughRelease(data), [
+    [UNTERNEHMER, { type: 'application.setPrizes', submissionId: NEWEDGE, prizes: ['bmp'] }],
+    [UNTERNEHMER, { type: 'questionnaire.submit', submissionId: NEWEDGE, prize: 'bmp', answers: completeAnswers() }],
+    ...uploadAll(),
   ])
 
 describe('Teilnehmerportal: Ablauf eines Vorgangs', () => {
   it('führt NEWEDGE von der Anmeldung bis zu geprüften Gewinnerunterlagen', () => {
     let data = throughQuestionnaire(seedData())
-    expect(applicantView(process(data), 'eigenbewerbung').status.label).toBe('Fragebogen eingereicht')
+    expect(applicantView(process(data), 'eigenbewerbung').status.label).toBe('Bewerbung eingereicht')
+    expect(process(data).log.at(-1)?.text).toMatch(/Bewerbung vollständig eingereicht$/)
 
     data = steps(data, [
       [VERWALTUNG, { type: 'jury.assign', submissionId: NEWEDGE }],
@@ -109,14 +128,106 @@ describe('Teilnehmerportal: Ablauf eines Vorgangs', () => {
 })
 
 describe('Teilnehmerportal: Voraussetzungen', () => {
-  it('gibt den Fragebogen erst nach Prüfung, Zahlung und Frist frei', () => {
+  it('gibt die Bewerbung erst nach Prüfung, Zahlung und Frist frei', () => {
     const data = steps(seedData(), [[VERWALTUNG, { type: 'review.set', submissionId: NEWEDGE, status: 'geprueft' }]])
-    expect(run(data, VERWALTUNG, { type: 'questionnaire.release', submissionId: NEWEDGE })).toMatchObject({ ok: false, error: { code: 'invalid_state' } })
+    expect(run(data, VERWALTUNG, { type: 'application.release', submissionId: NEWEDGE })).toMatchObject({ ok: false, error: { code: 'invalid_state' } })
     const paid = steps(data, [
       [VERWALTUNG, { type: 'payment.invoice', submissionId: NEWEDGE }],
       [VERWALTUNG, { type: 'payment.confirm', submissionId: NEWEDGE }],
     ])
-    expect(run(paid, VERWALTUNG, { type: 'questionnaire.release', submissionId: NEWEDGE })).toMatchObject({ ok: false, error: { message: 'Bitte setzen Sie zuerst eine Frist.' } })
+    expect(run(paid, VERWALTUNG, { type: 'application.release', submissionId: NEWEDGE })).toMatchObject({ ok: false, error: { message: 'Bitte setzen Sie zuerst eine Frist.' } })
+  })
+
+  it('reicht die Bewerbung erst mit allen Fragebögen der gewählten Preise und allen Unterlagen ein', () => {
+    let data = steps(throughRelease(seedData()), [
+      [UNTERNEHMER, { type: 'application.setPrizes', submissionId: NEWEDGE, prizes: ['roland_berger', 'bmp'] }],
+      [UNTERNEHMER, { type: 'questionnaire.submit', submissionId: NEWEDGE, prize: 'bmp', answers: completeAnswers('bmp') }],
+      ...uploadAll(),
+    ])
+    expect(process(data)).toMatchObject({ prizes: ['bmp', 'roland_berger'], application: 'in_bearbeitung' })
+    // Ein eingereichter Fragebogen bindet die Wahl des Preises.
+    expect(run(data, UNTERNEHMER, { type: 'application.setPrizes', submissionId: NEWEDGE, prizes: ['roland_berger'] })).toMatchObject({ ok: false, error: { code: 'invalid_state' } })
+    // Unvollständige Antworten werden mit dem ersten fehlenden Feld abgelehnt.
+    expect(run(data, UNTERNEHMER, { type: 'questionnaire.submit', submissionId: NEWEDGE, prize: 'roland_berger', answers: { [CONFIRM_KEY]: 'ja' } })).toMatchObject({
+      ok: false,
+      error: { code: 'invalid_input', field: 'rb_vision' },
+    })
+    data = steps(data, [[UNTERNEHMER, { type: 'questionnaire.submit', submissionId: NEWEDGE, prize: 'roland_berger', answers: completeAnswers('roland_berger') }]])
+    expect(process(data).application).toBe('eingereicht')
+    expect(process(data).applicationCompletedAt).toBeTruthy()
+  })
+
+  it('nimmt Unterlagen in allen Büroformaten an, aber keine anderen – austauschbar bis zur Jury', () => {
+    const data = throughRelease(seedData())
+    const upload = (fileName: string, size = 50_000): PortalCommand => ({ type: 'application.uploadDoc', submissionId: NEWEDGE, key: 'kennzahlen', fileName, size })
+    for (const name of ['kennzahlen.xlsx', 'kennzahlen.xls', 'kennzahlen.csv', 'bericht.pdf', 'brief.docx', 'folien.pptx', 'tabelle.ods']) expect(run(data, UNTERNEHMER, upload(name)).ok, name).toBe(true)
+    expect(run(data, UNTERNEHMER, upload('programm.exe'))).toMatchObject({ ok: false, error: { code: 'invalid_input', field: 'kennzahlen' } })
+    expect(run(data, UNTERNEHMER, upload('riesig.pdf', 40 * 1024 * 1024))).toMatchObject({ ok: false, error: { code: 'invalid_input' } })
+
+    const atJury = steps(throughQuestionnaire(seedData()), [[VERWALTUNG, { type: 'jury.assign', submissionId: NEWEDGE }]])
+    expect(run(atJury, UNTERNEHMER, upload('neu.xlsx'))).toMatchObject({ ok: false, error: { code: 'invalid_state' } })
+  })
+})
+
+describe('Teilnehmerportal: Fragebögen der Preise', () => {
+  const section = (fields: QuestionSection['fields']): QuestionSection[] => [{ id: 'nachfolge', step: 'Nachfolge', heading: 'Ihre Nachfolge', fields }]
+
+  it('lässt den Entwurf frei bearbeiten und erst nach dem Freischalten ausfüllen', () => {
+    const data = steps(throughRelease(seedData()), [[UNTERNEHMER, { type: 'application.setPrizes', submissionId: NEWEDGE, prizes: ['future_award'] }]])
+    // Entwurf: Bewerber können ihn noch nicht ausfüllen; die Verwaltung ist am Zug.
+    expect(run(data, UNTERNEHMER, { type: 'questionnaire.save', submissionId: NEWEDGE, prize: 'future_award', answers: {}, step: 0 })).toMatchObject({ ok: false, error: { code: 'invalid_state' } })
+    const withUploads = steps(data, uploadAll())
+    expect(adminNext(process(withUploads), 'eigenbewerbung', { released: releasedPrizes(withUploads) })).toMatchObject({ party: 'verwaltung', label: 'Fragebogen freischalten: Future Award' })
+
+    const edited = steps(data, [
+      [VERWALTUNG, { type: 'questionnaireDef.update', prize: 'future_award', sections: section([{ id: 'fa_story', label: 'Wie lief die Übergabe?', type: 'textarea', required: true, maxLength: 2000 }]) }],
+      [VERWALTUNG, { type: 'questionnaireDef.release', prize: 'future_award' }],
+      [UNTERNEHMER, { type: 'questionnaire.save', submissionId: NEWEDGE, prize: 'future_award', answers: { fa_story: 'Gut.' }, step: 0 }],
+    ])
+    expect(definitionOf(edited, 'future_award')).toMatchObject({ status: 'freigeschaltet' })
+    expect(process(edited).questionnaires.future_award).toMatchObject({ status: 'in_bearbeitung', answers: { fa_story: 'Gut.' } })
+  })
+
+  it('erlaubt nach dem Freischalten nur noch Texte und verhindert das Zurückziehen, sobald jemand begonnen hat', () => {
+    const data = seedData()
+    const bmp = definitionOf(data, 'bmp')!.sections
+    const retitled = bmp.map((item, index) => (index === 0 ? { ...item, heading: 'Kontaktdaten (überarbeitet)' } : item))
+    expect(run(data, VERWALTUNG, { type: 'questionnaireDef.update', prize: 'bmp', sections: retitled }).ok).toBe(true)
+    const extraField = bmp.map((item, index) => (index === 0 ? { ...item, fields: [...item.fields, { id: 'neu', label: 'Neue Frage', type: 'text' as const }] } : item))
+    expect(run(data, VERWALTUNG, { type: 'questionnaireDef.update', prize: 'bmp', sections: extraField })).toMatchObject({ ok: false, error: { code: 'invalid_state' } })
+    // Donau Werkzeugbau hat den BMP-Fragebogen begonnen.
+    expect(run(data, VERWALTUNG, { type: 'questionnaireDef.withdraw', prize: 'bmp' })).toMatchObject({ ok: false, error: { code: 'invalid_state' } })
+    expect(run(data, SACHBEARBEITUNG, { type: 'questionnaireDef.update', prize: 'bmp', sections: retitled })).toMatchObject({ ok: false, error: { code: 'forbidden' } })
+    // Unvollständige Fassungen werden nicht gespeichert (eine Auswahl braucht mindestens zwei Möglichkeiten).
+    expect(run(data, VERWALTUNG, { type: 'questionnaireDef.update', prize: 'future_award', sections: section([{ id: 'fa_kind', label: 'Art', type: 'select', options: [{ value: 'A', label: 'A' }] }]) })).toMatchObject({
+      ok: false,
+      error: { code: 'invalid_input' },
+    })
+  })
+})
+
+describe('Teilnehmerportal: Ausbaustufen', () => {
+  it('lehnt Befehle außerhalb der Stufe ab', () => {
+    const data = steps(seedData(), [[VERWALTUNG, { type: 'review.set', submissionId: NEWEDGE, status: 'geprueft' }]])
+    expect(runIn('a', data, VERWALTUNG, { type: 'payment.invoice', submissionId: NEWEDGE })).toMatchObject({ ok: false, error: { code: 'unavailable' } })
+    expect(runIn('a', data, VERWALTUNG, { type: 'review.set', submissionId: 'demo-huber', status: 'geprueft' }).ok).toBe(true)
+    expect(runIn('ab', data, VERWALTUNG, { type: 'payment.invoice', submissionId: NEWEDGE }).ok).toBe(true)
+    expect(runIn('ab', data, VERWALTUNG, { type: 'jury.assign', submissionId: 'demo-franken' })).toMatchObject({ ok: false, error: { code: 'unavailable' } })
+    expect(runIn('abc', data, VERWALTUNG, { type: 'documents.request', submissionId: 'demo-alpen' })).toMatchObject({ ok: false, error: { code: 'unavailable' } })
+    expect(runIn('gesamt', data, VERWALTUNG, { type: 'documents.request', submissionId: 'demo-alpen' }).ok).toBe(true)
+  })
+
+  it('beendet die Bewerbersicht mit der letzten Phase der Stufe', () => {
+    const reviewed = process(steps(seedData(), [[VERWALTUNG, { type: 'review.set', submissionId: NEWEDGE, status: 'geprueft' }]]))
+    const stageA = applicantView(reviewed, 'eigenbewerbung', 'NEWEDGE', { stage: 'a' })
+    expect(stageA).toMatchObject({ phase: 1, status: { label: 'Anmeldung geprüft' }, next: { mustAct: false } })
+    expect(stageA.steps.map((step) => [step.number, step.state])).toEqual([[1, 'done']])
+
+    const submitted = process(throughQuestionnaire(seedData()))
+    const stageAB = applicantView(submitted, 'eigenbewerbung', 'NEWEDGE', { stage: 'ab' })
+    expect(stageAB.steps.map((step) => step.state)).toEqual(['done', 'done'])
+    expect(adminNext(submitted, 'eigenbewerbung', { stage: 'ab' })).toMatchObject({ party: 'niemand' })
+    expect(applicantView(submitted, 'eigenbewerbung', 'NEWEDGE', { stage: 'abc' }).steps).toHaveLength(4)
   })
 
   it('startet Jury 2 erst, wenn alle zugewiesenen Stimmen der Jury 1 da sind', () => {
@@ -151,7 +262,7 @@ describe('Teilnehmerportal: Rechte', () => {
   it('erlaubt Bewerbern nur Aktionen an eigenen Vorgängen', () => {
     const data = seedData()
     expect(run(data, UNTERNEHMER, { type: 'payment.invoice', submissionId: NEWEDGE })).toMatchObject({ ok: false, error: { code: 'forbidden' } })
-    expect(run(data, 'demo-vorschlag', { type: 'questionnaire.save', submissionId: NEWEDGE, answers: {}, step: 0 })).toMatchObject({ ok: false, error: { code: 'forbidden' } })
+    expect(run(data, 'demo-vorschlag', { type: 'questionnaire.save', submissionId: NEWEDGE, prize: 'bmp', answers: {}, step: 0 })).toMatchObject({ ok: false, error: { code: 'forbidden' } })
     expect(run(data, null, { type: 'profile.save', profile: data.accounts[0].profile })).toMatchObject({ ok: false, error: { code: 'unauthenticated' } })
   })
 
@@ -184,12 +295,22 @@ describe('Teilnehmerportal: Sichtbarkeit', () => {
     expect(own.accounts[0].demoPassword).toBeUndefined()
   })
 
-  it('zeigt Jurymitgliedern nur zugewiesene Fragebögen und nur die eigene Bewertung', () => {
+  it('zeigt Jurymitgliedern nur zugewiesene Bewerbungen mit allen Unterlagen und nur die eigene Bewertung', () => {
     const data = seedData()
     const view = visibleTo(data, actorOf(data, JURY.b))
     expect(view.submissions.map((item) => item.id).sort()).toEqual(['demo-alpen', 'demo-franken'])
-    expect(view.submissions.find((item) => item.id === 'demo-franken')!.process.jury1).toEqual({ b: 'ja' })
+    const franken = view.submissions.find((item) => item.id === 'demo-franken')!.process
+    expect(franken.jury1).toEqual({ b: 'ja' })
+    expect(Object.keys(franken.questionnaires).sort()).toEqual(['bmp', 'roland_berger'])
+    expect(Object.keys(franken.applicationDocs)).toHaveLength(APPLICATION_DOCS.length)
     expect(view.jurors.map((juror) => juror.id)).toEqual(['b'])
+  })
+
+  it('zeigt Fragebögen im Entwurf nur der Verwaltung', () => {
+    const data = seedData()
+    expect(definitionOf(visibleTo(data, actorOf(data, UNTERNEHMER)), 'future_award')).toMatchObject({ status: 'entwurf', sections: [] })
+    expect(definitionOf(visibleTo(data, actorOf(data, UNTERNEHMER)), 'bmp')!.sections.length).toBeGreaterThan(0)
+    expect(definitionOf(visibleTo(data, actorOf(data, VERWALTUNG)), 'future_award')!.sections.length).toBeGreaterThan(0)
   })
 
   it('zeigt Testpasswörter nur der Verwaltung, nicht der Sachbearbeitung', () => {
